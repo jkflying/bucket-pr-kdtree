@@ -107,8 +107,11 @@ namespace tree
 
         KDTree()
         {
-            m_bounds[0].fill(std::numeric_limits<Scalar>::infinity());
-            m_bounds[1].fill(-std::numeric_limits<Scalar>::infinity());
+            for (std::size_t i = 0; i < Dimensions; i++)
+            {
+                m_bounds[i][0] = std::numeric_limits<Scalar>::infinity();
+                m_bounds[i][1] = -std::numeric_limits<Scalar>::infinity();
+            }
             m_locationPayloads.reserve(BucketSize);
         }
 
@@ -193,7 +196,7 @@ namespace tree
                     const tree_t* const node = searchStack.back();
                     searchStack.pop_back();
                     if (results.size() < numNeighbours
-                        || results.top().distance > pointRectDist(node->m_bounds[1], node->m_bounds[0], location))
+                        || results.top().distance > pointRectDist(node->m_bounds, location))
                     {
                         if (node->m_splitDimension == Dimensions)
                         {
@@ -225,15 +228,15 @@ namespace tree
 
         void expandBounds(const std::array<Scalar, Dimensions>& location)
         {
-            for (size_t i = 0; i < Dimensions; i++)
+            for (std::size_t i = 0; i < Dimensions; i++)
             {
-                if (m_bounds[0][i] > location[i])
+                if (m_bounds[i][0] > location[i])
                 {
-                    m_bounds[0][i] = location[i];
+                    m_bounds[i][0] = location[i];
                 }
-                if (m_bounds[1][i] < location[i])
+                if (m_bounds[i][1] < location[i])
                 {
-                    m_bounds[1][i] = location[i];
+                    m_bounds[i][1] = location[i];
                 }
             }
             m_entries++;
@@ -252,9 +255,9 @@ namespace tree
             m_splitDimension = Dimensions;
             Scalar width = 0.0;
             // select widest dimension
-            for (size_t i = 0; i < Dimensions; i++)
+            for (std::size_t i = 0; i < Dimensions; i++)
             {
-                Scalar dWidth = m_bounds[1][i] - m_bounds[0][i];
+                Scalar dWidth = m_bounds[i][1] - m_bounds[i][0];
                 if (dWidth > width)
                 {
                     m_splitDimension = static_cast<int64_t>(i);
@@ -265,7 +268,7 @@ namespace tree
             {
                 return false;
             }
-            m_splitValue = (m_bounds[1][m_splitDimension] + m_bounds[0][m_splitDimension]) / 2;
+            m_splitValue = (m_bounds[m_splitDimension][0] + m_bounds[m_splitDimension][1]) / Scalar(2);
 
             m_children.reset(new std::pair<tree_t, tree_t>());
 
@@ -336,20 +339,20 @@ namespace tree
             }
         }
 
-        static Scalar pointRectDist(const std::array<Scalar, Dimensions>& highBounds,
-            const std::array<Scalar, Dimensions>& lowBounds, const std::array<Scalar, Dimensions>& location)
+        static Scalar pointRectDist(
+            const std::array<std::array<Scalar, 2>, Dimensions>& bounds, const std::array<Scalar, Dimensions>& location)
         {
             std::array<Scalar, Dimensions> closestBoundsPoint;
 
             for (std::size_t i = 0; i < Dimensions; i++)
             {
-                if (lowBounds[i] > location[i])
+                if (bounds[i][0] > location[i])
                 {
-                    closestBoundsPoint[i] = lowBounds[i];
+                    closestBoundsPoint[i] = bounds[i][0];
                 }
-                else if (highBounds[i] < location[i])
+                else if (bounds[i][1] < location[i])
                 {
-                    closestBoundsPoint[i] = highBounds[i];
+                    closestBoundsPoint[i] = bounds[i][1];
                 }
                 else
                 {
@@ -364,7 +367,7 @@ namespace tree
         std::size_t m_splitDimension = Dimensions; /// split dimension of this node
         Scalar m_splitValue = 0; /// split value of this node
 
-        std::array<std::array<Scalar, Dimensions>, 2> m_bounds; /// bounding box of this node
+        std::array<std::array<Scalar, 2>, Dimensions> m_bounds; /// bounding box of this node
 
         std::vector<LocationPayload> m_locationPayloads; /// data held in this node (if a leaf)
         std::unique_ptr<std::pair<tree_t, tree_t>> m_children; /// subtrees held in this node (if not a leaf)
