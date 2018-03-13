@@ -98,26 +98,19 @@ namespace tree
     class KDTree
     {
     private:
-        using tree_t = KDTree<Payload, Dimensions, BucketSize, Metric, Scalar>;
+        struct Node;
+        Node m_root;
 
     public:
         using metric_t = Metric;
         using scalar_t = Scalar;
         using payload_t = Payload;
 
-        KDTree()
-        {
-            for (std::size_t i = 0; i < Dimensions; i++)
-            {
-                m_bounds[i][0] = std::numeric_limits<Scalar>::infinity();
-                m_bounds[i][1] = -std::numeric_limits<Scalar>::infinity();
-            }
-            m_locationPayloads.reserve(BucketSize);
-        }
+        KDTree() {}
 
         void addPoint(const std::array<Scalar, Dimensions>& location, const Payload& payload, bool autosplit = true)
         {
-            tree_t* addNode = this;
+            Node* addNode = &m_root;
 
             while (addNode->m_children != nullptr)
             {
@@ -141,11 +134,11 @@ namespace tree
 
         void splitOutstanding()
         {
-            std::deque<tree_t*> searchStack;
-            searchStack.push_back(this);
+            std::deque<Node*> searchStack;
+            searchStack.push_back(&m_root);
             while (searchStack.size() > 0)
             {
-                tree_t* node = searchStack.back();
+                Node* node = searchStack.back();
                 searchStack.pop_back();
                 if (node->m_children == nullptr)
                 {
@@ -177,9 +170,9 @@ namespace tree
         {
 
             using VecDistPay = std::vector<DistancePayload>;
-            if (m_entries < numNeighbours)
+            if (m_root.m_entries < numNeighbours)
             {
-                numNeighbours = m_entries;
+                numNeighbours = m_root.m_entries;
             }
             VecDistPay returnResults;
             if (numNeighbours > 0)
@@ -188,15 +181,14 @@ namespace tree
                 container.reserve(numNeighbours);
                 std::priority_queue<DistancePayload, VecDistPay> results(
                     std::less<DistancePayload>(), std::move(container));
-                std::vector<const tree_t*> searchStack;
+                std::vector<const Node*> searchStack;
 
-                searchStack.push_back(this);
+                searchStack.push_back(&m_root);
                 while (searchStack.size() > 0)
                 {
-                    const tree_t* const node = searchStack.back();
+                    const Node* const node = searchStack.back();
                     searchStack.pop_back();
-                    if (results.size() < numNeighbours
-                        || results.top().distance > pointRectDist(node->m_bounds, location))
+                    if (results.size() < numNeighbours || results.top().distance > node->pointRectDist(location))
                     {
                         if (node->m_children == nullptr)
                         {
@@ -208,6 +200,7 @@ namespace tree
                         }
                     }
                 }
+
                 returnResults.reserve(results.size());
                 while (results.size() > 0)
                 {
@@ -226,151 +219,164 @@ namespace tree
             Payload payload;
         };
 
-        void expandBounds(const std::array<Scalar, Dimensions>& location)
+        struct Node
         {
-            for (std::size_t i = 0; i < Dimensions; i++)
+            Node()
             {
-                if (m_bounds[i][0] > location[i])
+                for (std::size_t i = 0; i < Dimensions; i++)
                 {
-                    m_bounds[i][0] = location[i];
+                    m_bounds[i][0] = std::numeric_limits<Scalar>::infinity();
+                    m_bounds[i][1] = -std::numeric_limits<Scalar>::infinity();
                 }
-                if (m_bounds[i][1] < location[i])
+                m_locationPayloads.reserve(BucketSize);
+            }
+
+            void expandBounds(const std::array<Scalar, Dimensions>& location)
+            {
+                for (std::size_t i = 0; i < Dimensions; i++)
                 {
-                    m_bounds[i][1] = location[i];
+                    if (m_bounds[i][0] > location[i])
+                    {
+                        m_bounds[i][0] = location[i];
+                    }
+                    if (m_bounds[i][1] < location[i])
+                    {
+                        m_bounds[i][1] = location[i];
+                    }
                 }
+                m_entries++;
             }
-            m_entries++;
-        }
 
-        void add(const std::array<Scalar, Dimensions>& location, const Payload& payload)
-        {
-            m_locationPayloads.push_back(LocationPayload{location, payload});
-            expandBounds(location);
-        }
-
-        bool shouldSplit() const { return m_entries >= BucketSize; }
-
-        bool split()
-        {
-            m_splitDimension = Dimensions;
-            Scalar width(0);
-            // select widest dimension
-            for (std::size_t i = 0; i < Dimensions; i++)
+            void add(const std::array<Scalar, Dimensions>& location, const Payload& payload)
             {
-                Scalar dWidth = m_bounds[i][1] - m_bounds[i][0];
-                if (dWidth > width)
+                m_locationPayloads.push_back(LocationPayload{location, payload});
+                expandBounds(location);
+            }
+
+            bool shouldSplit() const { return m_entries >= BucketSize; }
+
+            bool split()
+            {
+                m_splitDimension = Dimensions;
+                Scalar width(0);
+                // select widest dimension
+                for (std::size_t i = 0; i < Dimensions; i++)
                 {
-                    m_splitDimension = i;
-                    width = dWidth;
+                    Scalar dWidth = m_bounds[i][1] - m_bounds[i][0];
+                    if (dWidth > width)
+                    {
+                        m_splitDimension = i;
+                        width = dWidth;
+                    }
                 }
-            }
-            if (m_splitDimension == Dimensions)
-            {
-                return false;
-            }
-            m_splitValue = (m_bounds[m_splitDimension][0] + m_bounds[m_splitDimension][1]) / Scalar(2);
-
-            m_children.reset(new std::pair<tree_t, tree_t>());
-
-            for (const auto& lp : m_locationPayloads)
-            {
-                if (lp.location[m_splitDimension] < m_splitValue)
+                if (m_splitDimension == Dimensions)
                 {
-                    m_children->first.add(lp.location, lp.payload);
+                    return false;
+                }
+                m_splitValue = (m_bounds[m_splitDimension][0] + m_bounds[m_splitDimension][1]) / Scalar(2);
+
+                m_children.reset(new std::pair<Node, Node>());
+
+                for (const auto& lp : m_locationPayloads)
+                {
+                    if (lp.location[m_splitDimension] < m_splitValue)
+                    {
+                        m_children->first.add(lp.location, lp.payload);
+                    }
+                    else
+                    {
+                        m_children->second.add(lp.location, lp.payload);
+                    }
+                }
+
+                if (m_children->first.m_entries == 0 || m_children->second.m_entries == 0)
+                {
+                    m_splitValue = 0;
+                    m_splitDimension = Dimensions;
+                    m_children.reset();
+                    return false;
                 }
                 else
                 {
-                    m_children->second.add(lp.location, lp.payload);
+                    m_locationPayloads.clear();
+                    m_locationPayloads.shrink_to_fit();
+                    return true;
                 }
             }
 
-            if (m_children->first.m_entries == 0 || m_children->second.m_entries == 0)
+            void searchBucket(const std::array<Scalar, Dimensions>& location, std::size_t K,
+                std::priority_queue<DistancePayload>& results) const
             {
-                m_splitValue = 0;
-                m_splitDimension = Dimensions;
-                m_children.reset();
-                return false;
-            }
-            else
-            {
-                m_locationPayloads.clear();
-                m_locationPayloads.shrink_to_fit();
-                return true;
-            }
-        }
+                std::size_t i = 0;
 
-        void searchBucket(const std::array<Scalar, Dimensions>& location, std::size_t K,
-            std::priority_queue<DistancePayload>& results) const
-        {
-            std::size_t i = 0;
-
-            // this fills up the queue if it isn't full yet
-            for (std::size_t max_i = K - results.size(); i < max_i && i < m_entries; i++)
-            {
-                const auto& lp = m_locationPayloads[i];
-                Scalar distance = Metric::distance(location, lp.location);
-                results.emplace(DistancePayload{distance, lp.payload});
-            }
-
-            // this adds new things to the queue once it is full
-            for (; i < m_entries; i++)
-            {
-                const auto& lp = m_locationPayloads[i];
-                Scalar distance = Metric::distance(location, lp.location);
-                if (distance < results.top().distance)
+                // this fills up the queue if it isn't full yet
+                for (std::size_t max_i = K - results.size(); i < max_i && i < m_entries; i++)
                 {
-                    results.pop();
+                    const auto& lp = m_locationPayloads[i];
+                    Scalar distance = Metric::distance(location, lp.location);
                     results.emplace(DistancePayload{distance, lp.payload});
                 }
-            }
-        }
 
-        void addChildren(const std::array<Scalar, Dimensions>& location, std::vector<const tree_t*>& searchStack) const
-        {
-            if (location[m_splitDimension] < m_splitValue)
-            {
-                searchStack.push_back(&(m_children->second));
-                searchStack.push_back(&(m_children->first)); // left is popped first
-            }
-            else
-            {
-                searchStack.push_back(&(m_children->first));
-                searchStack.push_back(&(m_children->second)); // right is popped first
-            }
-        }
-
-        static Scalar pointRectDist(
-            const std::array<std::array<Scalar, 2>, Dimensions>& bounds, const std::array<Scalar, Dimensions>& location)
-        {
-            std::array<Scalar, Dimensions> closestBoundsPoint;
-
-            for (std::size_t i = 0; i < Dimensions; i++)
-            {
-                if (bounds[i][0] > location[i])
+                // this adds new things to the queue once it is full
+                for (; i < m_entries; i++)
                 {
-                    closestBoundsPoint[i] = bounds[i][0];
+                    const auto& lp = m_locationPayloads[i];
+                    Scalar distance = Metric::distance(location, lp.location);
+                    if (distance < results.top().distance)
+                    {
+                        results.pop();
+                        results.emplace(DistancePayload{distance, lp.payload});
+                    }
                 }
-                else if (bounds[i][1] < location[i])
+            }
+
+            void addChildren(
+                const std::array<Scalar, Dimensions>& location, std::vector<const Node*>& searchStack) const
+            {
+                if (location[m_splitDimension] < m_splitValue)
                 {
-                    closestBoundsPoint[i] = bounds[i][1];
+                    searchStack.push_back(&(m_children->second));
+                    searchStack.push_back(&(m_children->first)); // left is popped first
                 }
                 else
                 {
-                    closestBoundsPoint[i] = location[i];
+                    searchStack.push_back(&(m_children->first));
+                    searchStack.push_back(&(m_children->second)); // right is popped first
                 }
             }
-            return Metric::distance(closestBoundsPoint, location);
-        }
 
-        std::size_t m_entries = 0; /// size of the tree, or subtreebuck
+            Scalar pointRectDist(const std::array<Scalar, Dimensions>& location) const
+            {
+                std::array<Scalar, Dimensions> closestBoundsPoint;
 
-        std::size_t m_splitDimension = Dimensions; /// split dimension of this node
-        Scalar m_splitValue = 0; /// split value of this node
+                for (std::size_t i = 0; i < Dimensions; i++)
+                {
+                    if (m_bounds[i][0] > location[i])
+                    {
+                        closestBoundsPoint[i] = m_bounds[i][0];
+                    }
+                    else if (m_bounds[i][1] < location[i])
+                    {
+                        closestBoundsPoint[i] = m_bounds[i][1];
+                    }
+                    else
+                    {
+                        closestBoundsPoint[i] = location[i];
+                    }
+                }
+                return Metric::distance(closestBoundsPoint, location);
+            }
 
-        std::array<std::array<Scalar, 2>, Dimensions> m_bounds; /// bounding box of this node
+            std::size_t m_entries = 0; /// size of the tree, or subtree
 
-        std::vector<LocationPayload> m_locationPayloads; /// data held in this node (if a leaf)
-        std::unique_ptr<std::pair<tree_t, tree_t>> m_children; /// subtrees held in this node (if not a leaf)
+            std::size_t m_splitDimension = Dimensions; /// split dimension of this node
+            Scalar m_splitValue = 0; /// split value of this node
+
+            std::array<std::array<Scalar, 2>, Dimensions> m_bounds; /// bounding box of this node
+
+            std::vector<LocationPayload> m_locationPayloads; /// data held in this node (if a leaf)
+            std::unique_ptr<std::pair<Node, Node>> m_children; /// subtrees held in this node (if not a leaf)
+        };
     };
 }
 }
