@@ -24,6 +24,26 @@ It allows dynamic insertion of points, followed by queries, then insertion of mo
 However this allows many use cases for problems where queries are interspersed with new data, and rebuilding the tree
 every time isn't a viable option. The buckets allow for good splits even if the tree is built entirely dynamically.
 
+# Performance #
+
+Included in the main.cpp are accuracy and performance tests. For a rough idea for performance tests:
+
+## Static building ##
+
+* Adding 10 million points: 1.8 seconds
+* Recursively splitting: 10.9 seconds
+* Performing 500k 5-nearest-neighbor queries: 2.7 seconds
+
+## Dynamic building (split as you go, tree gets full speed queries at any point) ##
+
+* Adding 10 million points: 9.1 seconds
+* Recursively splitting: 0 seconds (already split)
+* Performing 500k 5-nearest-neighbor queries: 3.9 seconds
+
+As seen, there is a slight penalty for choosing dynamic insertion in the search time due to a less balanced tree.
+However, it is less than rebuilding the tree several times, so for use-cases needing searches during data aquisition
+may be extremely useful.
+
 # License #
 
 This Source Code Form is subject to the terms of the Mozilla Public
@@ -34,17 +54,19 @@ For additional licensing rights, feature requests or questions, please contact J
 # Example usage #
 ```
 #!cpp
-jk.tree.KDTree<std::string, 2> tree;
-tree.addPoint(std::array<double,2>{{1,2}}, "George");
-tree.addPoint(std::array<double,2>{{1,3}}, "Harold");
-tree.addPoint(std::array<double,2>{{7,7}}, "Melvin");
+using tree_t = jk.tree.KDTree<std::string, 2>;
+using point_t = std::array<double,2>;
+tree_t tree;
+tree.addPoint(point_t{{1,2}}, "George");
+tree.addPoint(point_t{{1,3}}, "Harold");
+tree.addPoint(point_t{{7,7}}, "Melvin");
 
-std::array<double,2> monsterLocation{{6,6}};
+point_t monsterLocation{{6,6}};
 const std::size_t monsterHeads = 2;
 auto nearestTwo = tree.searchKnn(monster, monsterHeads);
 for (const auto& victim : nearestTwo)
 {
-    std::cout << victim.payload << " was eaten by the monster!" << std::endl;
+    std::cout << victim.payload << " eaten by monster, with distance " << victim.distance << "!" << std::endl;
 }
 ```
 # Tuning tips #
