@@ -119,7 +119,7 @@ namespace tree
         {
             tree_t* addNode = this;
 
-            while (addNode->m_splitDimension != Dimensions)
+            while (addNode->m_children != nullptr)
             {
                 addNode->expandBounds(location);
                 if (location[addNode->m_splitDimension] < addNode->m_splitValue)
@@ -147,7 +147,7 @@ namespace tree
             {
                 tree_t* node = searchStack.back();
                 searchStack.pop_back();
-                if (node->m_splitDimension == Dimensions)
+                if (node->m_children == nullptr)
                 {
                     if (!node->shouldSplit())
                     {
@@ -198,13 +198,13 @@ namespace tree
                     if (results.size() < numNeighbours
                         || results.top().distance > pointRectDist(node->m_bounds, location))
                     {
-                        if (node->m_splitDimension == Dimensions)
+                        if (node->m_children == nullptr)
                         {
-                            node->searchK(location, results, numNeighbours);
+                            node->searchBucket(location, numNeighbours, results);
                         }
                         else
                         {
-                            node->search(location, searchStack);
+                            node->addChildren(location, searchStack);
                         }
                     }
                 }
@@ -253,14 +253,14 @@ namespace tree
         bool split()
         {
             m_splitDimension = Dimensions;
-            Scalar width = 0.0;
+            Scalar width(0);
             // select widest dimension
             for (std::size_t i = 0; i < Dimensions; i++)
             {
                 Scalar dWidth = m_bounds[i][1] - m_bounds[i][0];
                 if (dWidth > width)
                 {
-                    m_splitDimension = static_cast<int64_t>(i);
+                    m_splitDimension = i;
                     width = dWidth;
                 }
             }
@@ -299,8 +299,8 @@ namespace tree
             }
         }
 
-        void searchK(const std::array<Scalar, Dimensions>& location, std::priority_queue<DistancePayload>& results,
-            std::size_t K) const
+        void searchBucket(const std::array<Scalar, Dimensions>& location, std::size_t K,
+            std::priority_queue<DistancePayload>& results) const
         {
             std::size_t i = 0;
 
@@ -325,7 +325,7 @@ namespace tree
             }
         }
 
-        void search(const std::array<Scalar, Dimensions>& location, std::vector<const tree_t*>& searchStack) const
+        void addChildren(const std::array<Scalar, Dimensions>& location, std::vector<const tree_t*>& searchStack) const
         {
             if (location[m_splitDimension] < m_splitValue)
             {
