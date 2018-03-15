@@ -49,7 +49,7 @@ void accuracyTest()
         std::array<double, 4> loc{{drand(), drand(), drand(), drand()}};
         int k = 50;
 
-        auto tnn = tree.searchKnn(loc, k);
+        auto tnn = tree.searchK(loc, k);
         auto bnn = bruteforce(loc, k);
         for (int i = 0; i < k; i++)
         {
@@ -70,15 +70,21 @@ void performanceTest()
 {
     std::clock_t previous = std::clock(), current = previous;
 
+    const std::size_t dims = 4;
     std::cout << "adding ";
-    std::vector<std::array<double, 4>> points;
-    jk::tree::KDTree<int, 4> tree;
+    std::vector<std::array<double, dims>> points;
+    jk::tree::KDTree<int, dims> tree;
+
     int count = 0;
     std::srand(1234567);
 
-    for (int i = 0; i < 10000000; i++)
+    for (int i = 0; i < 10 * 1000 * 1000; i++)
     {
-        std::array<double, 4> loc{{drand(), drand(), drand(), drand()}};
+        std::array<double, dims> loc;
+        for (int j = 0; j < dims; j++)
+        {
+            loc[j] = drand();
+        }
         tree.addPoint(loc, count++, false);
 
         points.push_back(loc);
@@ -89,11 +95,11 @@ void performanceTest()
     std::cout << DURATION << "s" << std::endl;
     std::cout << "searching ";
 
-    //     for (int j = 0; j < 10000; j++)
-    for (int i = 0; i < 500000; i++)
+    //     for (int j = 0; j < 500000; j++)
+    for (int i = 0; i < 500 * 1000; i++)
     {
-        int k = 5;
-        auto nn = tree.searchKnn(points[i], k);
+        const int k = 5;
+        auto nn = tree.searchK(points[i], k);
 
         if (nn[0].payload != i)
         {

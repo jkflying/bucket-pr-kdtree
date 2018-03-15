@@ -30,15 +30,15 @@ Included in the main.cpp are accuracy and performance tests. For a rough idea fo
 
 ## Static building ##
 
-* Adding 10 million random 4D points: 0.5 seconds
-* Recursively splitting: 3.7 seconds
-* Performing 500k 5-nearest-neighbor queries: 3.1 seconds
+* Adding 10 million random 4D points: 0.7 seconds
+* Recursively splitting: 3.1 seconds
+* Performing 500k 5-nearest-neighbor queries: 2.7 seconds
 
 ## Dynamic building (split as you go, tree gets full speed queries at any point) ##
 
-* Adding 10 million random 4D points: 12 seconds
+* Adding 10 million random 4D points: 9.6 seconds
 * Recursively splitting: 0 seconds (already split)
-* Performing 500k 5-nearest-neighbor queries: 4.9 seconds
+* Performing 500k 5-nearest-neighbor queries: 3.9 seconds
 
 As seen, there is a slight penalty for choosing dynamic insertion in the search time and build time. However, it is
 less than rebuilding the tree several times, so for use-cases needing searches during data aquisition may be necessary.
