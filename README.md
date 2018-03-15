@@ -30,19 +30,18 @@ Included in the main.cpp are accuracy and performance tests. For a rough idea fo
 
 ## Static building ##
 
-* Adding 10 million points: 1.8 seconds
-* Recursively splitting: 10.9 seconds
-* Performing 500k 5-nearest-neighbor queries: 2.7 seconds
+* Adding 10 million random 4D points: 0.5 seconds
+* Recursively splitting: 3.7 seconds
+* Performing 500k 5-nearest-neighbor queries: 3.1 seconds
 
 ## Dynamic building (split as you go, tree gets full speed queries at any point) ##
 
-* Adding 10 million points: 9.1 seconds
+* Adding 10 million random 4D points: 12 seconds
 * Recursively splitting: 0 seconds (already split)
-* Performing 500k 5-nearest-neighbor queries: 3.9 seconds
+* Performing 500k 5-nearest-neighbor queries: 4.9 seconds
 
-As seen, there is a slight penalty for choosing dynamic insertion in the search time due to a less balanced tree.
-However, it is less than rebuilding the tree several times, so for use-cases needing searches during data aquisition
-may be extremely useful.
+As seen, there is a slight penalty for choosing dynamic insertion in the search time and build time. However, it is
+less than rebuilding the tree several times, so for use-cases needing searches during data aquisition may be necessary.
 
 # License #
 
@@ -54,7 +53,7 @@ For additional licensing rights, feature requests or questions, please contact J
 # Example usage #
 ```
 #!cpp
-using tree_t = jk.tree.KDTree<std::string, 2>;
+using tree_t = jk::tree::KDTree<std::string, 2>;
 using point_t = std::array<double,2>;
 tree_t tree;
 tree.addPoint(point_t{{1,2}}, "George");
@@ -63,8 +62,8 @@ tree.addPoint(point_t{{7,7}}, "Melvin");
 
 point_t monsterLocation{{6,6}};
 const std::size_t monsterHeads = 2;
-auto nearestTwo = tree.searchKnn(monster, monsterHeads);
-for (const auto& victim : nearestTwo)
+auto victims = tree.searchK(monsterLocation, monsterHeads);
+for (const auto& victim : victims)
 {
     std::cout << victim.payload << " eaten by monster, with distance " << victim.distance << "!" << std::endl;
 }
@@ -84,3 +83,22 @@ The tree adapts to the parallel-to-axis dimensionality of the problem. Thus, if 
 larger scale than the others, most of the splitting will happen on this dimension. This is achieved by trying to
 keep the bounding boxes of the buckets equal lengths in all axes. Note, this does not imply that the subspace a
 subtree is parent of is square, for example if the data distribution in it is unequal.
+
+# Release Notes #
+
+0.2
+
+* Performance enhancements:
+
+** Use indexing for better cache locality of bounds (don't depend on the allocator)
+
+** Recycle memory for less allocator pressure during building the tree incrementally
+
+** Pre-allocate the search stack to prevent extra allocations during the search
+
+** Provide a 1-NN interface which only needs a single internal allocation (of search stack depth, for unwinding)
+
+
+0.1
+
+* First release of simple tree, written to "Good modern C++" standards.
