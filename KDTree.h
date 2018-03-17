@@ -2,36 +2,74 @@
 
 /**
  * KDTree.h by Julian Kent
- * A single-file, header-only, high performance C++ KD-Tree, allowing
- * dynamic insertions, with a simple API, depending only on the STL.
+ * A C++11 KD-Tree with the following features:
+ *     single file
+ *     header only
+ *     high performance K Nearest Neighbor and ball searches
+ *     dynamic insertions
+ *     simple API
+ *     depends only on the STL
+ *     templatable on your custom data type to store in the leaves. No need to keep a separate data structure!
+ *     templatable on double, float etc
+ *     templatable on L1, SquaredL2 or custom distance functor
+ *     templated on number of dimensions for efficient inlining
  *
  * -------------------------------------------------------------------
  *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not
+ * distributed with this  file, you can obtain one at http://mozilla.org/MPL/2.0/.
  *
- * For additional licensing rights, feature requests or questions,
- * please contact Julian Kent <jkflying@gmail.com>
+ * A high level explanation of MPLv2: You may use this in any software provided you give attribution. ou *must* make
+ * available any changes you make to the source code of this file to anybody you distribute your software to.
+ *
+ * Upstreaming features and bugfixes are highly appreciated via https://bitbucket.org/jkflying/KDTree.h
+ *
+ * For additional licensing rights, feature requests or questions, please contact Julian Kent <jkflying@gmail.com>
  *
  * -------------------------------------------------------------------
  *
  * Example usage:
  *
+ * // setup
  * using tree_t = jk::tree::KDTree<std::string, 2>;
- * using point_t = std::array<double,2>;
+ * using point_t = std::array<double, 2>;
  * tree_t tree;
- * tree.addPoint(point_t{{1,2}}, "George");
- * tree.addPoint(point_t{{1,3}}, "Harold");
- * tree.addPoint(point_t{{7,7}}, "Melvin");
+ * tree.addPoint(point_t{{1, 2}}, "George");
+ * tree.addPoint(point_t{{1, 3}}, "Harold");
+ * tree.addPoint(point_t{{7, 7}}, "Melvin");
  *
- * point_t monsterLocation{{6,6}};
+ * // KNN search
+ * point_t lazyMonsterLocation{{6, 6}}; // this monster will always try to eat the closest people
  * const std::size_t monsterHeads = 2; // this monster can eat two people at once
- * auto victims = tree.searchKnn(monsterLocation, monsterHeads); // find the nearest two unlucky people
- * for (const auto& victim : victims)
+ * auto lazyMonsterVictims = tree.searchKnn(lazyMonsterLocation, monsterHeads);
+ * for (const auto& victim : lazyMonsterVictims)
  * {
- *     std::cout << victim.payload << " eaten by monster, with distance " << victim.distance << "!" << std::endl;
+ *     std::cout << victim.payload << " closest to lazy monster, with distance " << sqrt(victim.distance) << "!"
+ *               << std::endl;
  * }
+ *
+ * // ball search
+ * point_t stationaryMonsterLocation{{8, 8}}; // this monster doesn't move, so can only eat people that are close
+ * const double neckLength = 6.0; // it can only reach within this range
+ * auto potentialVictims = tree.searchBall(stationaryMonsterLocation, neckLength * neckLength); // metric is SquaredL2
+ * std::cout << "Stationary monster can reach any of " << potentialVictims.size() << " people!" << std::endl;
+ *
+ * // hybrid KNN/ball search
+ * auto actualVictims
+ *     = tree.searchCapacityLimitedBall(stationaryMonsterLocation, neckLength * neckLength, monsterHeads);
+ * std::cout << "The stationary monster will try to eat ";
+ * for (const auto& victim : actualVictims)
+ * {
+ *     std::cout << victim.payload << " and ";
+ * }
+ * std::cout << "nobody else." << std::endl;
+ *
+ * Output:
+ *
+ * Melvin closest to lazy monster, with distance 1.41421!
+ * Harold closest to lazy monster, with distance 5.83095!
+ * Stationary monster can reach any of 1 people!
+ * The stationary monster will try to eat Melvin and nobody else.
  *
  * -------------------------------------------------------------------
  *
@@ -40,19 +78,23 @@
  * If you need to add a lot of points before doing any queries, set the optional `autosplit` parameter to false,
  * then call splitOutstanding(). This will reduce temporaries and result in a better balanced tree.
  *
- * Set the bucket size to be roughly twice the K in a KNN query. If you have more dimensions, it is better to have a
- * larger bucket size. 32 is a good starting point.
+ * Set the bucket size to be at least twice the K in a typical KNN query. If you have more dimensions, it is better to
+ * have a larger bucket size. 32 is a good starting point. If possible use powers of 2 for the bucket size.
  *
  * If you experience linear search performance, check that you don't have a bunch of duplicate point locations. This
  * will result in the tree being unable to split the bucket the points are in, degrading search performance.
  *
  * The tree adapts to the parallel-to-axis dimensionality of the problem. Thus, if there is one dimension with a much
  * larger scale than the others, most of the splitting will happen on this dimension. This is achieved by trying to
- * keep the bounding boxes of the buckets equal lengths in all axes. Note, this does not imply that the subspace a
- * subtree is parent of is square, for example if the data distribution in it is unequal.
+ * keep the bounding boxes of the data in the buckets equal lengths in all axes.
  *
  * Random data performs worse than 'real world' data with structure. This is because real world data has tighter
  * bounding boxes, meaning more branches of the tree can be eliminated sooner.
+ *
+ * On pure random data, more than 7 dimensions won't be much faster than linear. However, most data isn't actually
+ * random. The tree will adapt to any locally reduced dimensionality, which is found in most real world data.
+ *
+ * Hybrid ball/KNN searches are faster than either type on its own, because subtrees can be more aggresively eliminated.
  */
 
 #include <algorithm>
@@ -70,8 +112,8 @@ namespace tree
     struct L1
     {
         template <std::size_t Dimensions, typename Scalar>
-        static inline Scalar distance(
-            const std::array<Scalar, Dimensions>& location1, const std::array<Scalar, Dimensions>& location2)
+        static inline Scalar distance(const std::array<Scalar, Dimensions>& location1,
+                                      const std::array<Scalar, Dimensions>& location2)
         {
             auto abs = [](Scalar v) { return v > 0 ? v : -v; };
             Scalar dist = 0;
@@ -83,11 +125,11 @@ namespace tree
         }
     };
 
-    struct L2
+    struct SquaredL2
     {
         template <std::size_t Dimensions, typename Scalar>
-        static inline Scalar distance(
-            const std::array<Scalar, Dimensions>& location1, const std::array<Scalar, Dimensions>& location2)
+        static inline Scalar distance(const std::array<Scalar, Dimensions>& location1,
+                                      const std::array<Scalar, Dimensions>& location2)
         {
             auto sqr = [](Scalar v) { return v * v; };
             Scalar dist = 0;
@@ -99,8 +141,11 @@ namespace tree
         }
     };
 
-    template <class Payload, std::size_t Dimensions, std::size_t BucketSize = 32, class Metric = L2,
-        typename Scalar = double>
+    template <class Payload,
+              std::size_t Dimensions,
+              std::size_t BucketSize = 32,
+              class Distance = SquaredL2,
+              typename Scalar = double>
     class KDTree
     {
     private:
@@ -109,15 +154,16 @@ namespace tree
         std::set<std::size_t> waitingForSplit;
 
     public:
-        using metric_t = Metric;
+        using distance_t = Distance;
         using scalar_t = Scalar;
         using payload_t = Payload;
+        using point_t = std::array<Scalar, Dimensions>;
         static const std::size_t dimensions = Dimensions;
         static const std::size_t bucketSize = BucketSize;
 
         KDTree() { m_nodes.emplace_back(BucketSize); } // initialize the root node
 
-        void addPoint(const std::array<Scalar, Dimensions>& location, const Payload& payload, bool autosplit = true)
+        void addPoint(const point_t& location, const Payload& payload, bool autosplit = true)
         {
             std::size_t addNode = 0;
 
@@ -151,6 +197,7 @@ namespace tree
         void splitOutstanding()
         {
             std::vector<std::size_t> searchStack(waitingForSplit.begin(), waitingForSplit.end());
+            waitingForSplit.clear();
             while (searchStack.size() > 0)
             {
                 std::size_t addNode = searchStack.back();
@@ -170,7 +217,6 @@ namespace tree
                 searchStack.push_back(m_nodes[addNode].m_children.first);
                 searchStack.push_back(m_nodes[addNode].m_children.second);
             }
-            waitingForSplit.clear();
         }
 
         struct DistancePayload
@@ -180,22 +226,34 @@ namespace tree
             bool operator<(const DistancePayload& dp) const { return distance < dp.distance; }
         };
 
-        std::vector<DistancePayload> searchK(
-            const std::array<Scalar, Dimensions>& location, std::size_t numNeighbours) const
+        std::vector<DistancePayload> searchKnn(const point_t& location, std::size_t maxPoints) const
+        {
+            return searchCapacityLimitedBall(location, std::numeric_limits<Scalar>::max(), maxPoints);
+        }
+
+        std::vector<DistancePayload> searchBall(const point_t& location, Scalar maxRadius) const
+        {
+            return searchCapacityLimitedBall(location, maxRadius, std::numeric_limits<std::size_t>::max());
+        }
+
+        std::vector<DistancePayload> searchCapacityLimitedBall(const point_t& location,
+                                                               Scalar maxRadius,
+                                                               std::size_t maxPoints) const
         {
 
             using VecDistPay = std::vector<DistancePayload>;
-            if (m_nodes[0].m_entries < numNeighbours)
-            {
-                numNeighbours = m_nodes[0].m_entries;
-            }
+            std::size_t numSearchPoints = std::min(maxPoints, m_nodes[0].m_entries);
+
             VecDistPay returnResults;
-            if (numNeighbours > 0)
+            if (numSearchPoints > 0)
             {
                 VecDistPay container;
-                container.reserve(numNeighbours);
-                std::priority_queue<DistancePayload, VecDistPay> results(
-                    std::less<DistancePayload>(), std::move(container));
+                if (numSearchPoints < m_nodes[0].m_entries)
+                {
+                    container.reserve(numSearchPoints);
+                }
+                std::priority_queue<DistancePayload, VecDistPay> results(std::less<DistancePayload>(),
+                                                                         std::move(container));
                 std::vector<std::size_t> searchStack;
                 searchStack.reserve(1 + std::size_t(1.5 * std::log2(1 + m_nodes[0].m_entries / BucketSize)));
                 searchStack.push_back(0);
@@ -204,15 +262,16 @@ namespace tree
                     std::size_t nodeIndex = searchStack.back();
                     searchStack.pop_back();
                     const Node& node = m_nodes[nodeIndex];
-                    if (results.size() < numNeighbours || results.top().distance > node.pointRectDist(location))
+                    Scalar minDist = node.pointRectDist(location);
+                    if (maxRadius > minDist && (results.size() < numSearchPoints || results.top().distance > minDist))
                     {
                         if (node.m_splitDimension == Dimensions)
                         {
-                            node.searchBucket(location, numNeighbours, results);
+                            node.searchCapacityLimitedBall(location, maxRadius, numSearchPoints, results);
                         }
                         else
                         {
-                            node.addChildren(location, searchStack);
+                            node.queueChildren(location, searchStack);
                         }
                     }
                 }
@@ -228,7 +287,7 @@ namespace tree
             return returnResults;
         }
 
-        DistancePayload search(const std::array<Scalar, Dimensions>& location) const
+        DistancePayload search(const point_t& location) const
         {
             DistancePayload result;
             result.distance = std::numeric_limits<Scalar>::infinity();
@@ -250,7 +309,7 @@ namespace tree
                         {
                             for (const auto& lp : node.m_locationPayloads)
                             {
-                                Scalar nodeDist = Metric::distance(location, lp.location);
+                                Scalar nodeDist = Distance::distance(location, lp.location);
                                 if (nodeDist < result.distance)
                                 {
                                     result = DistancePayload{nodeDist, lp.payload};
@@ -259,7 +318,7 @@ namespace tree
                         }
                         else
                         {
-                            node.addChildren(location, searchStack);
+                            node.queueChildren(location, searchStack);
                         }
                     }
                 }
@@ -270,7 +329,7 @@ namespace tree
     private:
         struct LocationPayload
         {
-            std::array<Scalar, Dimensions> location;
+            point_t location;
             Payload payload;
         };
 
@@ -361,7 +420,7 @@ namespace tree
                 m_locationPayloads.reserve(std::max(BucketSize, capacity));
             }
 
-            void expandBounds(const std::array<Scalar, Dimensions>& location)
+            void expandBounds(const point_t& location)
             {
                 for (std::size_t i = 0; i < Dimensions; i++)
                 {
@@ -385,25 +444,30 @@ namespace tree
 
             bool shouldSplit() const { return m_entries >= BucketSize; }
 
-            void searchBucket(const std::array<Scalar, Dimensions>& location, std::size_t K,
-                std::priority_queue<DistancePayload>& results) const
+            void searchCapacityLimitedBall(const point_t& location,
+                                           Scalar maxRadius,
+                                           std::size_t K,
+                                           std::priority_queue<DistancePayload>& results) const
             {
                 std::size_t i = 0;
 
                 // this fills up the queue if it isn't full yet
-                for (std::size_t max_i = K - results.size(); i < max_i && i < m_entries; i++)
+                for (; results.size() < K && i < m_entries; i++)
                 {
                     const auto& lp = m_locationPayloads[i];
-                    Scalar distance = Metric::distance(location, lp.location);
-                    results.emplace(DistancePayload{distance, lp.payload});
+                    Scalar distance = Distance::distance(location, lp.location);
+                    if (distance < maxRadius)
+                    {
+                        results.emplace(DistancePayload{distance, lp.payload});
+                    }
                 }
 
                 // this adds new things to the queue once it is full
                 for (; i < m_entries; i++)
                 {
                     const auto& lp = m_locationPayloads[i];
-                    Scalar distance = Metric::distance(location, lp.location);
-                    if (distance < results.top().distance)
+                    Scalar distance = Distance::distance(location, lp.location);
+                    if (distance < maxRadius && distance < results.top().distance)
                     {
                         results.pop();
                         results.emplace(DistancePayload{distance, lp.payload});
@@ -411,8 +475,7 @@ namespace tree
                 }
             }
 
-            void addChildren(
-                const std::array<Scalar, Dimensions>& location, std::vector<std::size_t>& searchStack) const
+            void queueChildren(const point_t& location, std::vector<std::size_t>& searchStack) const
             {
                 if (location[m_splitDimension] < m_splitValue)
                 {
@@ -426,9 +489,9 @@ namespace tree
                 }
             }
 
-            Scalar pointRectDist(const std::array<Scalar, Dimensions>& location) const
+            Scalar pointRectDist(const point_t& location) const
             {
-                std::array<Scalar, Dimensions> closestBoundsPoint;
+                point_t closestBoundsPoint;
 
                 for (std::size_t i = 0; i < Dimensions; i++)
                 {
@@ -445,7 +508,7 @@ namespace tree
                         closestBoundsPoint[i] = location[i];
                     }
                 }
-                return Metric::distance(closestBoundsPoint, location);
+                return Distance::distance(closestBoundsPoint, location);
             }
 
             std::size_t m_entries = 0; /// size of the tree, or subtree
