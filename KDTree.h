@@ -112,8 +112,8 @@ namespace tree
     struct L1
     {
         template <std::size_t Dimensions, typename Scalar>
-        static inline Scalar distance(const std::array<Scalar, Dimensions>& location1,
-                                      const std::array<Scalar, Dimensions>& location2)
+        static Scalar distance(const std::array<Scalar, Dimensions>& location1,
+                               const std::array<Scalar, Dimensions>& location2)
         {
             auto abs = [](Scalar v) { return v > 0 ? v : -v; };
             Scalar dist = 0;
@@ -128,8 +128,8 @@ namespace tree
     struct SquaredL2
     {
         template <std::size_t Dimensions, typename Scalar>
-        static inline Scalar distance(const std::array<Scalar, Dimensions>& location1,
-                                      const std::array<Scalar, Dimensions>& location2)
+        static Scalar distance(const std::array<Scalar, Dimensions>& location1,
+                               const std::array<Scalar, Dimensions>& location2)
         {
             auto sqr = [](Scalar v) { return v * v; };
             Scalar dist = 0;
@@ -160,6 +160,7 @@ namespace tree
         using point_t = std::array<Scalar, Dimensions>;
         static const std::size_t dimensions = Dimensions;
         static const std::size_t bucketSize = BucketSize;
+        using tree_t = KDTree<Payload, Dimensions, BucketSize, Distance, Scalar>;
 
         KDTree() { m_nodes.emplace_back(BucketSize); } // initialize the root node
 
@@ -202,20 +203,11 @@ namespace tree
             {
                 std::size_t addNode = searchStack.back();
                 searchStack.pop_back();
-                if (m_nodes[addNode].m_splitDimension == Dimensions)
+                if (m_nodes[addNode].m_splitDimension == Dimensions && m_nodes[addNode].shouldSplit() && split(addNode))
                 {
-                    if (!m_nodes[addNode].shouldSplit())
-                    {
-                        continue;
-                    }
-
-                    if (!split(addNode))
-                    {
-                        continue;
-                    }
+                    searchStack.push_back(m_nodes[addNode].m_children.first);
+                    searchStack.push_back(m_nodes[addNode].m_children.second);
                 }
-                searchStack.push_back(m_nodes[addNode].m_children.first);
-                searchStack.push_back(m_nodes[addNode].m_children.second);
             }
         }
 
@@ -228,30 +220,19 @@ namespace tree
 
         std::vector<DistancePayload> searchKnn(const point_t& location, std::size_t maxPoints) const
         {
-            return searchCapacityLimitedBall(location, std::numeric_limits<Scalar>::max(), maxPoints);
+            return searcher().search(location, std::numeric_limits<Scalar>::max(), maxPoints);
         }
 
         std::vector<DistancePayload> searchBall(const point_t& location, Scalar maxRadius) const
         {
-            return searchCapacityLimitedBall(location, maxRadius, std::numeric_limits<std::size_t>::max());
+            return searcher().search(location, maxRadius, std::numeric_limits<std::size_t>::max());
         }
 
         std::vector<DistancePayload> searchCapacityLimitedBall(const point_t& location,
                                                                Scalar maxRadius,
                                                                std::size_t maxPoints) const
         {
-            std::vector<std::size_t> searchStack;
-            std::vector<DistancePayload> container;
-            if (maxPoints < m_nodes[0].m_entries)
-            {
-                container.reserve(maxPoints);
-            }
-            std::priority_queue<DistancePayload, std::vector<DistancePayload>> prioqueue(std::less<DistancePayload>(),
-                                                                                         std::move(container));
-            std::vector<DistancePayload> results;
-
-            searchCapacityLimitedBall(location, maxRadius, maxPoints, searchStack, prioqueue, results);
-            return results;
+            return searcher().search(location, maxRadius, maxPoints);
         }
 
         DistancePayload search(const point_t& location) const
@@ -293,6 +274,54 @@ namespace tree
             return result;
         }
 
+        class Searcher
+        {
+        public:
+            Searcher(const tree_t& tree) : m_tree(tree) {}
+            Searcher(const Searcher& searcher) : m_tree(searcher.m_tree) {}
+
+            // NB! this method is not const. Do not call this on same instance from different threads simultaneously.
+            const std::vector<DistancePayload>& search(const point_t& location, Scalar maxRadius, std::size_t maxPoints)
+            {
+                // clear any remainng search results
+                m_searchStack.clear();
+                while (m_prioqueue.size() > 0)
+                {
+                    m_prioqueue.pop();
+                }
+                m_results.clear();
+
+                // reserve capacities
+                m_searchStack.reserve(1 + std::size_t(1.5 * std::log2(1 + m_tree.m_nodes[0].m_entries / BucketSize)));
+                if (m_prioqueueCapacity < maxPoints && maxPoints < m_tree.m_nodes[0].m_entries)
+                {
+                    std::vector<DistancePayload> container;
+                    container.reserve(maxPoints);
+                    m_prioqueue = std::priority_queue<DistancePayload, std::vector<DistancePayload>>(
+                        std::less<DistancePayload>(), std::move(container));
+                    m_prioqueueCapacity = maxPoints;
+                }
+
+                m_tree.searchCapacityLimitedBall(location, maxRadius, maxPoints, m_searchStack, m_prioqueue, m_results);
+
+                m_prioqueueCapacity = std::max(m_prioqueueCapacity, m_results.size());
+                return m_results;
+            }
+
+        private:
+            const tree_t& m_tree;
+            Scalar m_maxRadius;
+            std::size_t m_maxPoints;
+
+            std::vector<std::size_t> m_searchStack;
+            std::priority_queue<DistancePayload, std::vector<DistancePayload>> m_prioqueue;
+            std::size_t m_prioqueueCapacity = 0;
+            std::vector<DistancePayload> m_results;
+        };
+
+        // NB! returned class has no const methods. Get one instance per thread!
+        Searcher searcher() const { return Searcher(*this); }
+
     private:
         struct LocationPayload
         {
@@ -305,13 +334,12 @@ namespace tree
                                        std::size_t maxPoints,
                                        std::vector<std::size_t>& searchStack,
                                        std::priority_queue<DistancePayload, std::vector<DistancePayload>>& prioqueue,
-                                       std::vector<DistancePayload>& returnResults) const
+                                       std::vector<DistancePayload>& results) const
         {
             std::size_t numSearchPoints = std::min(maxPoints, m_nodes[0].m_entries);
 
             if (numSearchPoints > 0)
             {
-                searchStack.reserve(1 + std::size_t(1.5 * std::log2(1 + m_nodes[0].m_entries / BucketSize)));
                 searchStack.push_back(0);
                 while (searchStack.size() > 0)
                 {
@@ -333,13 +361,13 @@ namespace tree
                     }
                 }
 
-                returnResults.reserve(prioqueue.size());
+                results.reserve(prioqueue.size());
                 while (prioqueue.size() > 0)
                 {
-                    returnResults.push_back(prioqueue.top());
+                    results.push_back(prioqueue.top());
                     prioqueue.pop();
                 }
-                std::reverse(returnResults.begin(), returnResults.end());
+                std::reverse(results.begin(), results.end());
             }
         }
 
@@ -369,15 +397,27 @@ namespace tree
             {
                 return false;
             }
-            auto avg = [](std::array<Scalar, 2> vals) { return (vals[0] + vals[1]) / Scalar(2); };
-            splitNode.m_splitValue = avg(splitNode.m_bounds[splitNode.m_splitDimension]);
 
-            splitNode.m_children = std::pair<std::size_t, std::size_t>(m_nodes.size(), m_nodes.size() + 1);
+            std::vector<Scalar> splitDimVals;
+            splitDimVals.reserve(splitNode.m_entries);
+            for (const auto& lp : splitNode.m_locationPayloads)
+            {
+                splitDimVals.push_back(lp.location[splitNode.m_splitDimension]);
+            }
+            std::nth_element(
+                splitDimVals.begin(), splitDimVals.begin() + splitDimVals.size() / 2 + 1, splitDimVals.end());
+            std::nth_element(splitDimVals.begin(),
+                             splitDimVals.begin() + splitDimVals.size() / 2,
+                             splitDimVals.begin() + splitDimVals.size() / 2 + 1);
+            splitNode.m_splitValue
+                = (splitDimVals[splitDimVals.size() / 2] + splitDimVals[splitDimVals.size() / 2 + 1]) / Scalar(2);
+
+            splitNode.m_children = std::make_pair(m_nodes.size(), m_nodes.size() + 1);
             std::size_t entries = splitNode.m_entries;
             m_nodes.emplace_back(m_bucketRecycle, entries);
+            Node& leftNode = m_nodes.back();
             m_nodes.emplace_back(entries);
-            Node& leftNode = m_nodes[splitNode.m_children.first];
-            Node& rightNode = m_nodes[splitNode.m_children.second];
+            Node& rightNode = m_nodes.back();
 
             for (const auto& lp : splitNode.m_locationPayloads)
             {
@@ -429,7 +469,7 @@ namespace tree
 
             void init(std::size_t capacity)
             {
-                m_bounds.fill({{std::numeric_limits<Scalar>::infinity(), -std::numeric_limits<Scalar>::infinity()}});
+                m_bounds.fill({{std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()}});
                 m_locationPayloads.reserve(std::max(BucketSize, capacity));
             }
 

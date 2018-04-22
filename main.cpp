@@ -113,45 +113,72 @@ void performanceTest()
 {
     std::clock_t previous = std::clock(), current = previous;
 
-    const std::size_t dims = 4;
+#define dims 2
     std::cout << "adding ";
     std::vector<std::array<double, dims>> points;
-    jk::tree::KDTree<int, dims> tree;
+    jk::tree::KDTree<int, dims, 8> tree;
 
     int count = 0;
     std::srand(1234567);
 
-    for (int i = 0; i < 10 * 1000 * 1000; i++)
-    {
+    auto randomPoint = []() {
         std::array<double, dims> loc;
         for (std::size_t j = 0; j < dims; j++)
         {
             loc[j] = drand();
         }
+        return loc;
+    };
+
+    for (int i = 0; i < 4 * 100; i++)
+    {
+        std::array<double, dims> loc = randomPoint();
         tree.addPoint(loc, count++, false);
 
         points.push_back(loc);
     }
+
+    std::vector<std::array<double, dims>> searchPoints;
+    for (int i = 0; i < 5 * 1000 * 1000; i++)
+    {
+        searchPoints.push_back(randomPoint());
+    }
+
     std::cout << DURATION << "s" << std::endl;
     std::cout << "splitting ";
     tree.splitOutstanding();
     std::cout << DURATION << "s" << std::endl;
-    std::cout << "searching ";
-
-    //     for (int j = 0; j < 500000; j++)
-    for (int i = 0; i < 500 * 1000; i++)
+    for (int j = 0; j < 3; j++)
     {
-        const int k = 5;
-        auto nn = tree.searchKnn(points[i], k);
+        std::cout << "searching " << (j + 1) << " ";
 
-        if (nn[0].payload != i)
+        for (auto p : searchPoints)
         {
-            std::cout << nn[0].distance << " ERROR" << std::endl;
+            const int k = 3;
+            auto nn = tree.searchKnn(p, k);
+
+            if (nn.size() != k)
+            {
+                std::cout << nn.size() << " instead of " << k << " ERROR" << std::endl;
+            }
         }
-        if (nn.size() != k)
-        {
-            std::cout << nn.size() << " instead of " << k << " ERROR" << std::endl;
-        }
+        std::cout << DURATION << "s" << std::endl;
     }
-    std::cout << DURATION << "s" << std::endl;
+    for (int j = 0; j < 3; j++)
+    {
+        std::cout << "bulk searching " << (j + 1) << " ";
+
+        const int k = 3;
+        auto searcher = tree.searcher();
+        for (auto p : searchPoints)
+        {
+            const auto& nn = searcher.search(p, std::numeric_limits<double>::max(), k);
+
+            if (nn.size() != k)
+            {
+                std::cout << nn.size() << " instead of " << k << " ERROR" << std::endl;
+            }
+        }
+        std::cout << DURATION << "s" << std::endl;
+    }
 }
