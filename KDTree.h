@@ -115,7 +115,7 @@ namespace tree
         static Scalar distance(const std::array<Scalar, Dimensions>& location1,
                                const std::array<Scalar, Dimensions>& location2)
         {
-            auto abs = [](Scalar v) { return v > 0 ? v : -v; };
+            auto abs = [](Scalar v) { return v >= 0 ? v : -v; };
             Scalar dist = 0;
             for (std::size_t i = 0; i < Dimensions; i++)
             {
@@ -310,8 +310,6 @@ namespace tree
 
         private:
             const tree_t& m_tree;
-            Scalar m_maxRadius;
-            std::size_t m_maxPoints;
 
             std::vector<std::size_t> m_searchStack;
             std::priority_queue<DistancePayload, std::vector<DistancePayload>> m_prioqueue;
