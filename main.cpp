@@ -56,22 +56,32 @@ void example()
 
 void accuracyTest()
 {
-    std::vector<std::array<double, 4>> points;
-    using tree_t = jk::tree::KDTree<int, 4>;
+    static const int dims = 4;
+    std::vector<std::array<double, dims>> points;
+    using tree_t = jk::tree::KDTree<int, dims>;
     tree_t tree;
     int count = 0;
     std::srand(1234567);
 
+    auto randomPoint = []() {
+        std::array<double, dims> loc;
+        for (std::size_t j = 0; j < dims; j++)
+        {
+            loc[j] = drand();
+        }
+        return loc;
+    };
+
     for (int i = 0; i < 2000; i++)
     {
-        std::array<double, 4> loc{{drand(), drand(), drand(), drand()}};
+        std::array<double, dims> loc = randomPoint();
         tree.addPoint(loc, count++);
 
         points.push_back(loc);
     }
     tree.splitOutstanding();
 
-    auto bruteforce = [&](const std::array<double, 4>& searchLoc, int K) -> std::vector<std::pair<double, int>> {
+    auto bruteforceKNN = [&](const std::array<double, dims>& searchLoc, int K) -> std::vector<std::pair<double, int>> {
         std::vector<std::pair<double, int>> dists;
         for (std::size_t i = 0; i < points.size(); i++)
         {
@@ -85,16 +95,61 @@ void accuracyTest()
 
     for (std::size_t j = 0; j < points.size(); j++)
     {
-        std::array<double, 4> loc{{drand(), drand(), drand(), drand()}};
-        std::size_t k = 50;
+        const std::array<double, dims> loc = randomPoint();
+        const std::size_t k = 50;
 
         auto tnn = tree.searchKnn(loc, k);
-        auto bnn = bruteforce(loc, k);
+        auto bnn = bruteforceKNN(loc, k);
         if (tnn.size() != k)
         {
             std::cout << "Searched for " << k << ", found " << tnn.size() << std::endl;
         }
         for (std::size_t i = 0; i < k; i++)
+        {
+            if (std::abs(bnn[i].first - tnn[i].distance) > 1e-10)
+            {
+                std::cout << "distances not equal" << std::endl;
+            }
+            if (bnn[i].second != tnn[i].payload)
+            {
+                std::cout << "payloads not equal" << std::endl;
+            }
+        }
+    }
+
+    auto bruteforceRadius
+        = [&](const std::array<double, dims>& searchLoc, double radius) -> std::vector<std::pair<double, int>> {
+        std::vector<std::pair<double, int>> dists;
+        for (std::size_t i = 0; i < points.size(); i++)
+        {
+            double distance = tree_t::distance_t::distance(searchLoc, points[i]);
+            dists.emplace_back(distance, i);
+        }
+        std::sort(dists.begin(), dists.end());
+        auto iter = std::lower_bound(dists.begin(), dists.end(), std::make_pair(radius, int(0)));
+        std::size_t inliers = std::distance(dists.begin(), iter);
+        dists.resize(inliers);
+        return dists;
+    };
+
+    for (std::size_t j = 0; j < points.size(); j++)
+    {
+        const std::array<double, dims> loc{{drand(), drand(), drand(), drand()}};
+        const double radius = 0.7;
+
+        auto tnn = tree.searchBall(loc, radius);
+        auto bnn = bruteforceRadius(loc, radius);
+        if (tnn.size() != bnn.size())
+        {
+            std::cout << "Brute force results are not the same size as tree results" << std::endl;
+            continue;
+        }
+
+        if (tnn.size() && tnn.back().distance > radius)
+        {
+            std::cout << "Searched for max radius " << radius << ", found " << tnn.back().distance << std::endl;
+        }
+        for (std::size_t i = 0; i < tnn.size(); i++)
         {
             if (std::abs(bnn[i].first - tnn[i].distance) > 1e-10)
             {
@@ -113,7 +168,7 @@ void performanceTest()
 {
     std::clock_t previous = std::clock(), current = previous;
 
-#define dims 2
+    static const int dims = 2;
     std::cout << "adding ";
     std::vector<std::array<double, dims>> points;
     jk::tree::KDTree<int, dims, 8> tree;

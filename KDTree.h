@@ -326,6 +326,7 @@ namespace tree
             point_t location;
             Payload payload;
         };
+        std::vector<LocationPayload> m_bucketRecycle;
 
         void searchCapacityLimitedBall(const point_t& location,
                                        Scalar maxRadius,
@@ -369,7 +370,6 @@ namespace tree
             }
         }
 
-        std::vector<LocationPayload> m_bucketRecycle;
 
         bool split(std::size_t index)
         {
