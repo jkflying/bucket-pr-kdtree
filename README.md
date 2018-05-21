@@ -124,6 +124,10 @@ Hybrid ball/KNN searches are faster than either type on its own, because subtree
 
 # Release Notes #
 
+0.4
+
+* New feature: a Searcher class, to amortize heap allocations across many searches. Up to 30% speed improvement!
+
 0.3
 
 * New feature: ball search, and ball/knn hybrid search which limits on both radius and number of values

@@ -185,7 +185,7 @@ void performanceTest()
         return loc;
     };
 
-    for (int i = 0; i < 4 * 100; i++)
+    for (int i = 0; i < 4 * 1000 * 10; i++)
     {
         std::array<double, dims> loc = randomPoint();
         tree.addPoint(loc, count++, false);
