@@ -51,7 +51,7 @@ License, v. 2.0.
 A high level explanation of MPLv2: You may use this in any software provided you give attribution. You *must* make
 available any changes you make to the source code of this file to anybody you distribute your software to.
 
-Upstreaming features and bugfixes are highly appreciated via https://bitbucket.org/jkflying/KDTree.h
+Upstreaming features and bugfixes are highly appreciated via https://github.com/jkflying/bucket-pr-kdtree/tree/master/C++
 
 For additional licensing rights, feature requests or questions, please contact Julian Kent <jkflying@gmail.com>
 
