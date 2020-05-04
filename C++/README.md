@@ -56,8 +56,7 @@ Upstreaming features and bugfixes are highly appreciated via https://github.com/
 For additional licensing rights, feature requests or questions, please contact Julian Kent <jkflying@gmail.com>
 
 # Example usage #
-```
-#!cpp
+```cpp
 // setup
 using tree_t = jk::tree::KDTree<std::string, 2>;
 using point_t = std::array<double, 2>;
