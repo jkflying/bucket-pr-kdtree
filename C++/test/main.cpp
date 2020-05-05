@@ -1,4 +1,4 @@
-#include "KDTree.h"
+#include <KDTree.h>
 
 #include <cstdlib>
 #include <ctime>
@@ -7,18 +7,21 @@
 double drand() { return (rand() / (RAND_MAX + 1.)); }
 void example();
 void accuracyTest();
+void duplicateTest();
 void performanceTest();
 
 int main()
 {
     example();
     accuracyTest();
+    duplicateTest();
     performanceTest();
     return 0;
 }
 
 void example()
 {
+    std::cout << "Example starting..." << std::endl;
     // setup
     using tree_t = jk::tree::KDTree<std::string, 2>;
     using point_t = std::array<double, 2>;
@@ -52,10 +55,14 @@ void example()
         std::cout << victim.payload << " and ";
     }
     std::cout << "nobody else." << std::endl;
+    std::cout << "Example completed" << std::endl;
 }
 
 void accuracyTest()
 {
+    // GIVEN: a tree, a bunch of random points to put in it, and dumb brute force methods to compare results to
+
+    std::cout << "Accuracy tests starting..." << std::endl;
     static const int dims = 4;
     std::vector<std::array<double, dims>> points;
     using tree_t = jk::tree::KDTree<int, dims>;
@@ -63,59 +70,18 @@ void accuracyTest()
     int count = 0;
     std::srand(1234567);
 
-    auto randomPoint = []() {
-        std::array<double, dims> loc;
-        for (std::size_t j = 0; j < dims; j++)
-        {
-            loc[j] = drand();
-        }
-        return loc;
-    };
-
-    for (int i = 0; i < 2000; i++)
-    {
-        std::array<double, dims> loc = randomPoint();
-        tree.addPoint(loc, count++);
-
-        points.push_back(loc);
-    }
-    tree.splitOutstanding();
-
-    auto bruteforceKNN = [&](const std::array<double, dims>& searchLoc, int K) -> std::vector<std::pair<double, int>> {
+    auto bruteforceKNN = [&](const std::array<double, dims>& searchLoc, size_t K) -> std::vector<std::pair<double, int>> {
         std::vector<std::pair<double, int>> dists;
         for (std::size_t i = 0; i < points.size(); i++)
         {
             double distance = tree_t::distance_t::distance(searchLoc, points[i]);
             dists.emplace_back(distance, i);
         }
-        std::partial_sort(dists.begin(), dists.begin() + K, dists.end());
-        dists.resize(K);
+        size_t actualK = std::min(points.size(), K);
+        std::partial_sort(dists.begin(), dists.begin() + actualK, dists.end());
+        dists.resize(actualK);
         return dists;
     };
-
-    for (std::size_t j = 0; j < points.size(); j++)
-    {
-        const std::array<double, dims> loc = randomPoint();
-        const std::size_t k = 50;
-
-        auto tnn = tree.searchKnn(loc, k);
-        auto bnn = bruteforceKNN(loc, k);
-        if (tnn.size() != k)
-        {
-            std::cout << "Searched for " << k << ", found " << tnn.size() << std::endl;
-        }
-        for (std::size_t i = 0; i < k; i++)
-        {
-            if (std::abs(bnn[i].first - tnn[i].distance) > 1e-10)
-            {
-                std::cout << "distances not equal" << std::endl;
-            }
-            if (bnn[i].second != tnn[i].payload)
-            {
-                std::cout << "payloads not equal" << std::endl;
-            }
-        }
-    }
 
     auto bruteforceRadius
         = [&](const std::array<double, dims>& searchLoc, double radius) -> std::vector<std::pair<double, int>> {
@@ -132,12 +98,101 @@ void accuracyTest()
         return dists;
     };
 
+    auto randomPoint = []() {
+        std::array<double, dims> loc;
+        for (std::size_t j = 0; j < dims; j++)
+        {
+            loc[j] = drand();
+        }
+        return loc;
+    };
+
+    // THEN: the tree size should match
+    if (tree.size() != 0)
+    {
+        std::cout << "Count doesn't match!!!" << std::endl;
+    }
+
+    auto searcher = tree.searcher();
+    for (std::size_t j = 0; j < 2000; j++)
+    {
+        const std::array<double, dims> loc = randomPoint();
+
+        // WHEN: we search for the KNN with the tree and the brute force
+        const std::size_t k = 50;
+        auto tnn = tree.searchKnn(loc, k);
+        auto bnn = bruteforceKNN(loc, k);
+        auto snn = searcher.search(loc, 1e9, k);
+
+
+
+        // THEN: the returned result sizes should match
+        if (tnn.size() != bnn.size() || snn.size() != bnn.size() || bnn.size() > std::min(k, points.size()))
+        {
+            std::cout << "Searched for " << k << ", found " << tnn.size() << std::endl;
+        }
+
+        if (bnn.size() > 0)
+        {
+            auto nn = tree.search(loc);
+            if (nn.payload != bnn[0].second)
+            {
+                std::cout << "1nn payloads not equal" << std::endl;
+            }
+            if (std::abs(bnn[0].first - nn.distance) > 1e-10)
+            {
+                std::cout << "1nn distances not equal" << std::endl;
+            }
+
+        }
+
+        // AND: the entries should match - both index, and distance
+        for (std::size_t i = 0; i < tnn.size(); i++)
+        {
+            if (std::abs(bnn[i].first - tnn[i].distance) > 1e-10)
+            {
+                std::cout << "distances not equal" << std::endl;
+            }
+            if (std::abs(bnn[i].first - snn[i].distance) > 1e-10)
+            {
+                std::cout << "distances not equal" << std::endl;
+            }
+            if (bnn[i].second != tnn[i].payload)
+            {
+                std::cout << "payloads not equal" << std::endl;
+            }
+            if (bnn[i].second != snn[i].payload)
+            {
+                std::cout << "payloads not equal" << std::endl;
+            }
+        }
+
+        // WHEN: we add the point we searched for to the tree for next time
+        tree.addPoint(loc, count++);
+        points.push_back(loc);
+
+        // THEN: the tree size should match
+        if (tree.size() != points.size())
+        {
+            std::cout << "Count doesn't match!!!" << std::endl;
+        }
+
+    }
+
+    tree_t tree2;
+
     for (std::size_t j = 0; j < points.size(); j++)
     {
-        const std::array<double, dims> loc{{drand(), drand(), drand(), drand()}};
+        tree2.addPoint(points[j], j, false);
+    }
+    tree2.splitOutstanding();
+
+    for (std::size_t j = 0; j < points.size(); j++)
+    {
+        const std::array<double, dims> loc = randomPoint();
         const double radius = 0.7;
 
-        auto tnn = tree.searchBall(loc, radius);
+        auto tnn = tree2.searchBall(loc, radius);
         auto bnn = bruteforceRadius(loc, radius);
         if (tnn.size() != bnn.size())
         {
@@ -161,11 +216,54 @@ void accuracyTest()
             }
         }
     }
+
+    std::cout << "Accuracy tests completed" << std::endl;
+}
+
+void duplicateTest()
+{
+    std::cout << "Duplicate tests started" << std::endl;
+
+    // GIVEN: the same point added to the tree lots and lots of times (multiple buckets worth)
+    static const int dims = 11;
+    auto randomPoint = []() {
+        std::array<double, dims> loc;
+        for (std::size_t j = 0; j < dims; j++)
+        {
+            loc[j] = drand();
+        }
+        return loc;
+    };
+    using tree_t = jk::tree::KDTree<int, dims>;
+    tree_t tree;
+
+    const std::array<double, dims> loc = randomPoint();
+
+    for (int i = 0; i < 5000; i++) {
+        tree.addPoint(loc, i, false);
+    }
+    auto almostLoc = loc;
+    almostLoc[0] = std::nextafter(loc[0], 1e9);
+    tree.addPoint(almostLoc, tree.size(), false); // and another point, just so not the entire treee is one point
+
+    // WHEN: the tree is split and queried
+    tree.splitOutstanding();
+    auto tnn = tree.searchKnn(loc, 80);
+
+
+    // THEN: it should still behave normally - correct K for KNN, no crashes, good code coverage, etc
+    if (tnn.size() != 80)
+    {
+        std::cout << "Incorrect K: " << tnn.size() << std::endl;
+    }
+    std::cout << "Duplicate tests completed" << std::endl;
+
 }
 
 #define DURATION double(((previous = current) * 0 + (current = std::clock()) - previous) / double(CLOCKS_PER_SEC))
 void performanceTest()
 {
+    std::cout << "Performance tests starting..." << std::endl;
     std::clock_t previous = std::clock(), current = previous;
 
     static const int dims = 2;
@@ -185,7 +283,7 @@ void performanceTest()
         return loc;
     };
 
-    for (int i = 0; i < 4 * 1000 * 10; i++)
+    for (int i = 0; i < 400 * 1000; i++)
     {
         std::array<double, dims> loc = randomPoint();
         tree.addPoint(loc, count++, false);
@@ -194,7 +292,7 @@ void performanceTest()
     }
 
     std::vector<std::array<double, dims>> searchPoints;
-    for (int i = 0; i < 5 * 1000 * 1000; i++)
+    for (int i = 0; i < 100 * 1000; i++)
     {
         searchPoints.push_back(randomPoint());
     }
@@ -236,4 +334,5 @@ void performanceTest()
         }
         std::cout << DURATION << "s" << std::endl;
     }
+    std::cout << "Performance tests completed" << std::endl;
 }

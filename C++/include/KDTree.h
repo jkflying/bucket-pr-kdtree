@@ -19,10 +19,12 @@
  * This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not
  * distributed with this  file, you can obtain one at http://mozilla.org/MPL/2.0/.
  *
- * A high level explanation of MPLv2: You may use this in any software provided you give attribution. ou *must* make
+ * A high level explanation of MPLv2: You may use this in any software provided you give attribution. You *must* make
  * available any changes you make to the source code of this file to anybody you distribute your software to.
  *
- * Upstreaming features and bugfixes are highly appreciated via https://bitbucket.org/jkflying/KDTree.h
+ * Upstreaming features and bugfixes are highly appreciated via:
+ *
+ * https://github.com/jkflying/bucket-pr-kdtree/tree/master/C%2B%2B
  *
  * For additional licensing rights, feature requests or questions, please contact Julian Kent <jkflying@gmail.com>
  *
@@ -99,6 +101,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <queue>
@@ -164,6 +167,8 @@ namespace tree
 
         KDTree() { m_nodes.emplace_back(BucketSize); } // initialize the root node
 
+        size_t size() const { return m_nodes[0].m_entries; }
+
         void addPoint(const point_t& location, const Payload& payload, bool autosplit = true)
         {
             std::size_t addNode = 0;
@@ -180,7 +185,7 @@ namespace tree
                     addNode = m_nodes[addNode].m_children.second;
                 }
             }
-            m_nodes[addNode].add(LocationPayload{location, payload});
+            m_nodes[addNode].add(LocationPayload {location, payload});
 
             if (m_nodes[addNode].shouldSplit() && m_nodes[addNode].m_entries % BucketSize == 0)
             {
@@ -260,7 +265,7 @@ namespace tree
                                 Scalar nodeDist = Distance::distance(location, lp.location);
                                 if (nodeDist < result.distance)
                                 {
-                                    result = DistancePayload{nodeDist, lp.payload};
+                                    result = DistancePayload {nodeDist, lp.payload};
                                 }
                             }
                         }
@@ -277,18 +282,13 @@ namespace tree
         class Searcher
         {
         public:
-            Searcher(const tree_t& tree) : m_tree(tree) {}
-            Searcher(const Searcher& searcher) : m_tree(searcher.m_tree) {}
+            Searcher(const tree_t& tree) : m_tree(tree) { }
+            Searcher(const Searcher& searcher) : m_tree(searcher.m_tree) { }
 
             // NB! this method is not const. Do not call this on same instance from different threads simultaneously.
             const std::vector<DistancePayload>& search(const point_t& location, Scalar maxRadius, std::size_t maxPoints)
             {
-                // clear any remainng search results
-                m_searchStack.clear();
-                while (m_prioqueue.size() > 0)
-                {
-                    m_prioqueue.pop();
-                }
+                // clear results from last time
                 m_results.clear();
 
                 // reserve capacities
@@ -370,7 +370,6 @@ namespace tree
             }
         }
 
-
         bool split(std::size_t index)
         {
             if (m_nodes.capacity() < m_nodes.size() + 2)
@@ -383,8 +382,7 @@ namespace tree
             // select widest dimension
             for (std::size_t i = 0; i < Dimensions; i++)
             {
-                auto diff = [](std::array<Scalar, 2> vals) { return vals[1] - vals[0]; };
-                Scalar dWidth = diff(splitNode.m_bounds[i]);
+                Scalar dWidth = splitNode.m_bounds[i].max - splitNode.m_bounds[i].min;
                 if (dWidth > width)
                 {
                     splitNode.m_splitDimension = i;
@@ -429,12 +427,12 @@ namespace tree
                 }
             }
 
-            if (leftNode.m_entries == 0 || rightNode.m_entries == 0)
+            if (leftNode.m_entries == 0) // points with equality to splitValue go in rightNode
             {
                 splitNode.m_splitValue = 0;
                 splitNode.m_splitDimension = Dimensions;
                 splitNode.m_children = std::pair<std::size_t, std::size_t>(0, 0);
-                std::swap(leftNode.m_locationPayloads, m_bucketRecycle);
+                std::swap(rightNode.m_locationPayloads, m_bucketRecycle);
                 m_nodes.pop_back();
                 m_nodes.pop_back();
                 return false;
@@ -442,6 +440,8 @@ namespace tree
             else
             {
                 splitNode.m_locationPayloads.clear();
+                // if it was a standard sized bucket, recycle the memory to reduce allocator pressure
+                // otherwise clear the memory used by the bucket since it is a branch not a leaf anymore
                 if (splitNode.m_locationPayloads.capacity() == BucketSize)
                 {
                     std::swap(splitNode.m_locationPayloads, m_bucketRecycle);
@@ -467,7 +467,7 @@ namespace tree
 
             void init(std::size_t capacity)
             {
-                m_bounds.fill({{std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()}});
+                m_bounds.fill(Range {std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
                 m_locationPayloads.reserve(std::max(BucketSize, capacity));
             }
 
@@ -475,13 +475,13 @@ namespace tree
             {
                 for (std::size_t i = 0; i < Dimensions; i++)
                 {
-                    if (m_bounds[i][0] > location[i])
+                    if (m_bounds[i].min > location[i])
                     {
-                        m_bounds[i][0] = location[i];
+                        m_bounds[i].min = location[i];
                     }
-                    if (m_bounds[i][1] < location[i])
+                    if (m_bounds[i].max < location[i])
                     {
-                        m_bounds[i][1] = location[i];
+                        m_bounds[i].max = location[i];
                     }
                 }
                 m_entries++;
@@ -509,7 +509,7 @@ namespace tree
                     Scalar distance = Distance::distance(location, lp.location);
                     if (distance < maxRadius)
                     {
-                        results.emplace(DistancePayload{distance, lp.payload});
+                        results.emplace(DistancePayload {distance, lp.payload});
                     }
                 }
 
@@ -521,7 +521,7 @@ namespace tree
                     if (distance < maxRadius && distance < results.top().distance)
                     {
                         results.pop();
-                        results.emplace(DistancePayload{distance, lp.payload});
+                        results.emplace(DistancePayload {distance, lp.payload});
                     }
                 }
             }
@@ -542,22 +542,13 @@ namespace tree
 
             Scalar pointRectDist(const point_t& location) const
             {
+                auto clamp = [](Scalar v, Range r) { return std::max(r.min, std::min(r.max, v)); };
+
                 point_t closestBoundsPoint;
 
                 for (std::size_t i = 0; i < Dimensions; i++)
                 {
-                    if (m_bounds[i][0] > location[i])
-                    {
-                        closestBoundsPoint[i] = m_bounds[i][0];
-                    }
-                    else if (m_bounds[i][1] < location[i])
-                    {
-                        closestBoundsPoint[i] = m_bounds[i][1];
-                    }
-                    else
-                    {
-                        closestBoundsPoint[i] = location[i];
-                    }
+                    closestBoundsPoint[i] = clamp(location[i], m_bounds[i]);
                 }
                 return Distance::distance(closestBoundsPoint, location);
             }
@@ -567,7 +558,11 @@ namespace tree
             std::size_t m_splitDimension = Dimensions; /// split dimension of this node
             Scalar m_splitValue = 0; /// split value of this node
 
-            std::array<std::array<Scalar, 2>, Dimensions> m_bounds; /// bounding box of this node
+            struct Range
+            {
+                Scalar min, max;
+            };
+            std::array<Range, Dimensions> m_bounds; /// bounding box of this node
 
             std::pair<std::size_t, std::size_t> m_children; /// subtrees of this node (if not a leaf)
             std::vector<LocationPayload> m_locationPayloads; /// data held in this node (if a leaf)
