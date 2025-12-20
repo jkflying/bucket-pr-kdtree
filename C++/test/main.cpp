@@ -9,12 +9,16 @@ void example();
 void accuracyTest();
 void duplicateTest();
 void performanceTest();
+void iteratorTest();
+void rebalanceTest();
 
 int main()
 {
     example();
     accuracyTest();
     duplicateTest();
+    iteratorTest();
+    rebalanceTest();
     performanceTest();
     return 0;
 }
@@ -26,12 +30,12 @@ void example()
     using tree_t = jk::tree::KDTree<std::string, 2>;
     using point_t = std::array<double, 2>;
     tree_t tree;
-    tree.addPoint(point_t{{1, 2}}, "George");
-    tree.addPoint(point_t{{1, 3}}, "Harold");
-    tree.addPoint(point_t{{7, 7}}, "Melvin");
+    tree.addPoint(point_t {{1, 2}}, "George");
+    tree.addPoint(point_t {{1, 3}}, "Harold");
+    tree.addPoint(point_t {{7, 7}}, "Melvin");
 
     // KNN search
-    point_t lazyMonsterLocation{{6, 6}}; // this monster will always try to eat the closest people
+    point_t lazyMonsterLocation {{6, 6}}; // this monster will always try to eat the closest people
     const std::size_t monsterHeads = 2; // this monster can eat two people at once
     auto lazyMonsterVictims = tree.searchKnn(lazyMonsterLocation, monsterHeads);
     for (const auto& victim : lazyMonsterVictims)
@@ -41,7 +45,7 @@ void example()
     }
 
     // ball search
-    point_t stationaryMonsterLocation{{8, 8}}; // this monster doesn't move, so can only eat people that are close
+    point_t stationaryMonsterLocation {{8, 8}}; // this monster doesn't move, so can only eat people that are close
     const double neckLength = 6.0; // it can only reach within this range
     auto potentialVictims = tree.searchBall(stationaryMonsterLocation, neckLength * neckLength); // metric is SquaredL2
     std::cout << "Stationary monster can reach any of " << potentialVictims.size() << " people!" << std::endl;
@@ -70,7 +74,8 @@ void accuracyTest()
     int count = 0;
     std::srand(1234567);
 
-    auto bruteforceKNN = [&](const std::array<double, dims>& searchLoc, size_t K) -> std::vector<std::pair<double, int>> {
+    auto bruteforceKNN = [&](const std::array<double, dims>& searchLoc, size_t K) -> std::vector<std::pair<double, int>>
+    {
         std::vector<std::pair<double, int>> dists;
         for (std::size_t i = 0; i < points.size(); i++)
         {
@@ -84,7 +89,8 @@ void accuracyTest()
     };
 
     auto bruteforceRadius
-        = [&](const std::array<double, dims>& searchLoc, double radius) -> std::vector<std::pair<double, int>> {
+        = [&](const std::array<double, dims>& searchLoc, double radius) -> std::vector<std::pair<double, int>>
+    {
         std::vector<std::pair<double, int>> dists;
         for (std::size_t i = 0; i < points.size(); i++)
         {
@@ -98,7 +104,8 @@ void accuracyTest()
         return dists;
     };
 
-    auto randomPoint = []() {
+    auto randomPoint = []()
+    {
         std::array<double, dims> loc;
         for (std::size_t j = 0; j < dims; j++)
         {
@@ -124,8 +131,6 @@ void accuracyTest()
         auto bnn = bruteforceKNN(loc, k);
         auto snn = searcher.search(loc, 1e9, k);
 
-
-
         // THEN: the returned result sizes should match
         if (tnn.size() != bnn.size() || snn.size() != bnn.size() || bnn.size() > std::min(k, points.size()))
         {
@@ -143,7 +148,6 @@ void accuracyTest()
             {
                 std::cout << "1nn distances not equal" << std::endl;
             }
-
         }
 
         // AND: the entries should match - both index, and distance
@@ -176,7 +180,6 @@ void accuracyTest()
         {
             std::cout << "Count doesn't match!!!" << std::endl;
         }
-
     }
 
     tree_t tree2;
@@ -226,7 +229,8 @@ void duplicateTest()
 
     // GIVEN: the same point added to the tree lots and lots of times (multiple buckets worth)
     static const int dims = 11;
-    auto randomPoint = []() {
+    auto randomPoint = []()
+    {
         std::array<double, dims> loc;
         for (std::size_t j = 0; j < dims; j++)
         {
@@ -239,7 +243,8 @@ void duplicateTest()
 
     const std::array<double, dims> loc = randomPoint();
 
-    for (int i = 0; i < 5000; i++) {
+    for (int i = 0; i < 5000; i++)
+    {
         tree.addPoint(loc, i, false);
     }
     auto almostLoc = loc;
@@ -250,14 +255,143 @@ void duplicateTest()
     tree.splitOutstanding();
     auto tnn = tree.searchKnn(loc, 80);
 
-
     // THEN: it should still behave normally - correct K for KNN, no crashes, good code coverage, etc
     if (tnn.size() != 80)
     {
         std::cout << "Incorrect K: " << tnn.size() << std::endl;
     }
     std::cout << "Duplicate tests completed" << std::endl;
+}
 
+void iteratorTest()
+{
+    std::cout << "Iterator tests started" << std::endl;
+
+    // GIVEN: an empty tree
+    static const int dims = 3;
+    using tree_t = jk::tree::KDTree<int, dims>;
+    tree_t tree;
+
+    // THEN: iterator should be at end
+    if (tree.begin() != tree.end())
+    {
+        std::cout << "Empty tree begin != end" << std::endl;
+    }
+
+    // WHEN: adding points
+    std::vector<std::array<double, dims>> points;
+    for (int i = 0; i < 1000; i++)
+    {
+        std::array<double, dims> p;
+        for (int d = 0; d < dims; d++)
+            p[d] = drand();
+        tree.addPoint(p, i, false);
+        points.push_back(p);
+    }
+
+    // THEN: we should be able to iterate over all of them (unsplit)
+    int count = 0;
+    for (auto it = tree.begin(); it != tree.end(); ++it)
+    {
+        count++;
+    }
+    if (count != 1000)
+    {
+        std::cout << "Unsplit tree iterator count mismatch: " << count << " != 1000" << std::endl;
+    }
+
+    // WHEN: splitting the tree
+    tree.splitOutstanding();
+
+    // THEN: we should still be able to iterate over all of them (split)
+    count = 0;
+    std::vector<int> foundPayloads;
+    for (const auto& lp : tree)
+    {
+        count++;
+        foundPayloads.push_back(lp.payload);
+    }
+    if (count != 1000)
+    {
+        std::cout << "Split tree iterator count mismatch: " << count << " != 1000" << std::endl;
+    }
+
+    std::sort(foundPayloads.begin(), foundPayloads.end());
+    for (int i = 0; i < 1000; i++)
+    {
+        if (foundPayloads[i] != i)
+        {
+            std::cout << "Payload mismatch at " << i << ": " << foundPayloads[i] << " != " << i << std::endl;
+            break;
+        }
+    }
+
+    // WHEN: adding more points to cause more splits
+    for (int i = 1000; i < 2000; i++)
+    {
+        std::array<double, dims> p;
+        for (int d = 0; d < dims; d++)
+            p[d] = drand();
+        tree.addPoint(p, i, true);
+    }
+
+    // THEN: iterator still works
+    count = 0;
+    for (auto& lp : tree)
+    {
+        count++;
+    }
+    if (count != 2000)
+    {
+        std::cout << "Post-autosplit tree iterator count mismatch: " << count << " != 2000" << std::endl;
+    }
+
+    std::cout << "Iterator tests completed" << std::endl;
+}
+
+void rebalanceTest()
+{
+    std::cout << "Rebalance tests started" << std::endl;
+
+    // GIVEN: a tree built with many dynamic insertions
+    static const int dims = 2;
+    using tree_t = jk::tree::KDTree<int, dims>;
+    tree_t tree;
+
+    for (int i = 0; i < 2000; i++)
+    {
+        std::array<double, dims> p = {{drand(), drand()}};
+        tree.addPoint(p, i, true);
+    }
+
+    size_t sizeBefore = tree.size();
+
+    // WHEN: rebalancing the tree
+    tree.rebalance();
+
+    // THEN: size should be the same
+    if (tree.size() != sizeBefore)
+    {
+        std::cout << "Size mismatch after rebalance: " << tree.size() << " != " << sizeBefore << std::endl;
+    }
+
+    // AND: all points should still be there
+    std::vector<int> foundPayloads;
+    for (const auto& lp : tree)
+    {
+        foundPayloads.push_back(lp.payload);
+    }
+    std::sort(foundPayloads.begin(), foundPayloads.end());
+    for (int i = 0; i < 2000; i++)
+    {
+        if (foundPayloads[i] != i)
+        {
+            std::cout << "Payload mismatch after rebalance at " << i << std::endl;
+            break;
+        }
+    }
+
+    std::cout << "Rebalance tests completed" << std::endl;
 }
 
 #define DURATION double(((previous = current) * 0 + (current = std::clock()) - previous) / double(CLOCKS_PER_SEC))
@@ -274,7 +408,8 @@ void performanceTest()
     int count = 0;
     std::srand(1234567);
 
-    auto randomPoint = []() {
+    auto randomPoint = []()
+    {
         std::array<double, dims> loc;
         for (std::size_t j = 0; j < dims; j++)
         {

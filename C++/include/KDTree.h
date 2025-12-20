@@ -165,6 +165,100 @@ namespace tree
         static const std::size_t bucketSize = BucketSize;
         using tree_t = KDTree<Payload, Dimensions, BucketSize, Distance, Scalar>;
 
+        struct LocationPayload
+        {
+            point_t location;
+            Payload payload;
+        };
+
+        class iterator
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = LocationPayload;
+            using difference_type = std::ptrdiff_t;
+            using pointer = const LocationPayload*;
+            using reference = const LocationPayload&;
+
+            iterator(const KDTree* tree, std::size_t nodeIndex, std::size_t pointIndex)
+                : m_tree(tree), m_nodeIndex(nodeIndex), m_pointIndex(pointIndex)
+            {
+                advanceToNextValid();
+            }
+
+            iterator() : m_tree(nullptr), m_nodeIndex(0), m_pointIndex(0) { }
+
+            reference operator*() const { return m_tree->m_nodes[m_nodeIndex].m_locationPayloads[m_pointIndex]; }
+
+            pointer operator->() const { return &m_tree->m_nodes[m_nodeIndex].m_locationPayloads[m_pointIndex]; }
+
+            iterator& operator++()
+            {
+                m_pointIndex++;
+                advanceToNextValid();
+                return *this;
+            }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            bool operator==(const iterator& other) const
+            {
+                if (m_tree != other.m_tree)
+                {
+                    return false;
+                }
+                if (m_tree == nullptr)
+                {
+                    return true;
+                }
+                return m_nodeIndex == other.m_nodeIndex && m_pointIndex == other.m_pointIndex;
+            }
+
+            bool operator!=(const iterator& other) const { return !(*this == other); }
+
+        private:
+            const KDTree* m_tree;
+            std::size_t m_nodeIndex;
+            std::size_t m_pointIndex;
+
+            void advanceToNextValid()
+            {
+                if (!m_tree)
+                {
+                    return;
+                }
+                while (m_nodeIndex < m_tree->m_nodes.size())
+                {
+                    if (m_pointIndex < m_tree->m_nodes[m_nodeIndex].m_locationPayloads.size())
+                    {
+                        return;
+                    }
+                    m_nodeIndex++;
+                    m_pointIndex = 0;
+                }
+            }
+        };
+
+        iterator begin() const { return iterator(this, 0, 0); }
+
+        iterator end() const { return iterator(this, m_nodes.size(), 0); }
+
+        void rebalance()
+        {
+            tree_t newTree;
+            for (const auto& lp : *this)
+            {
+                newTree.addPoint(lp.location, lp.payload, false);
+            }
+            newTree.splitOutstanding();
+            *this = std::move(newTree);
+        }
+
         KDTree() { m_nodes.emplace_back(BucketSize); } // initialize the root node
 
         size_t size() const { return m_nodes[0].m_entries; }
@@ -321,11 +415,6 @@ namespace tree
         Searcher searcher() const { return Searcher(*this); }
 
     private:
-        struct LocationPayload
-        {
-            point_t location;
-            Payload payload;
-        };
         std::vector<LocationPayload> m_bucketRecycle;
 
         void searchCapacityLimitedBall(const point_t& location,
