@@ -13,6 +13,7 @@ void iteratorTest();
 void rebalanceTest();
 void eightDTest();
 void removalTest();
+void l1DistanceTest();
 
 int main()
 {
@@ -23,6 +24,7 @@ int main()
     rebalanceTest();
     eightDTest();
     removalTest();
+    l1DistanceTest();
     performanceTest();
     return 0;
 }
@@ -490,6 +492,64 @@ void removalTest()
     }
 
     std::cout << "Removal tests completed" << std::endl;
+}
+
+void l1DistanceTest()
+{
+    std::cout << "L1 Distance tests started" << std::endl;
+    static const int dims = 3;
+    using tree_t = jk::tree::KDTree<int, dims, 32, jk::tree::L1>;
+    tree_t tree;
+
+    std::vector<std::array<double, dims>> points;
+    std::srand(12345);
+
+    auto bruteForceL1 = [&](const std::array<double, dims>& loc, std::size_t k)
+    {
+        std::vector<std::pair<double, int>> dists;
+        for (std::size_t i = 0; i < points.size(); ++i)
+        {
+            double d = 0;
+            for (int j = 0; j < dims; ++j)
+                d += std::abs(loc[j] - points[i][j]);
+            dists.push_back({d, (int)i});
+        }
+        std::sort(dists.begin(), dists.end());
+        if (dists.size() > k)
+            dists.resize(k);
+        return dists;
+    };
+
+    for (int i = 0; i < 1000; i++)
+    {
+        std::array<double, dims> p = {{drand(), drand(), drand()}};
+        tree.addPoint(p, i);
+        points.push_back(p);
+    }
+
+    for (int i = 0; i < 100; i++)
+    {
+        std::array<double, dims> loc = {{drand(), drand(), drand()}};
+        auto knn = tree.searchKnn(loc, 10);
+        auto brute = bruteForceL1(loc, 10);
+
+        if (knn.size() != brute.size())
+        {
+            std::cout << "L1 KNN size mismatch" << std::endl;
+            continue;
+        }
+
+        for (std::size_t j = 0; j < knn.size(); ++j)
+        {
+            if (std::abs(knn[j].distance - brute[j].first) > 1e-10)
+            {
+                std::cout << "L1 distance mismatch at " << j << ": " << knn[j].distance << " != " << brute[j].first
+                          << std::endl;
+            }
+        }
+    }
+
+    std::cout << "L1 Distance tests completed" << std::endl;
 }
 
 #define DURATION double(((previous = current) * 0 + (current = std::clock()) - previous) / double(CLOCKS_PER_SEC))
