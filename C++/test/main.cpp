@@ -11,6 +11,7 @@ void duplicateTest();
 void performanceTest();
 void iteratorTest();
 void rebalanceTest();
+void eightDTest();
 
 int main()
 {
@@ -19,6 +20,7 @@ int main()
     duplicateTest();
     iteratorTest();
     rebalanceTest();
+    eightDTest();
     performanceTest();
     return 0;
 }
@@ -392,6 +394,36 @@ void rebalanceTest()
     }
 
     std::cout << "Rebalance tests completed" << std::endl;
+}
+
+void eightDTest()
+{
+    std::cout << "8D tests started" << std::endl;
+    static const int dims = 8;
+    using tree_t = jk::tree::KDTree<int, dims>;
+    tree_t tree;
+
+    std::srand(123);
+    for (int i = 0; i < 1000; i++)
+    {
+        std::array<double, dims> p;
+        for (int d = 0; d < dims; d++)
+            p[d] = drand();
+        tree.addPoint(p, i);
+    }
+
+    for (int i = 0; i < 100; i++)
+    {
+        std::array<double, dims> p;
+        for (int d = 0; d < dims; d++)
+            p[d] = drand();
+        auto results = tree.searchKnn(p, 5);
+        if (results.size() != 5)
+        {
+            std::cout << "8D search failed to find 5 neighbors" << std::endl;
+        }
+    }
+    std::cout << "8D tests completed" << std::endl;
 }
 
 #define DURATION double(((previous = current) * 0 + (current = std::clock()) - previous) / double(CLOCKS_PER_SEC))

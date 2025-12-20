@@ -112,6 +112,20 @@ namespace jk
 {
 namespace tree
 {
+    template <std::size_t Dim> struct Loop
+    {
+        template <typename F> static void run(F f)
+        {
+            Loop<Dim - 1>::run(f);
+            f(Dim - 1);
+        }
+    };
+
+    template <> struct Loop<0>
+    {
+        template <typename F> static void run(F f) { }
+    };
+
     struct L1
     {
         template <std::size_t Dimensions, typename Scalar>
@@ -120,10 +134,7 @@ namespace tree
         {
             auto abs = [](Scalar v) { return v >= 0 ? v : -v; };
             Scalar dist = 0;
-            for (std::size_t i = 0; i < Dimensions; i++)
-            {
-                dist += abs(location1[i] - location2[i]);
-            }
+            Loop<Dimensions>::run([&](std::size_t i) { dist += abs(location1[i] - location2[i]); });
             return dist;
         }
     };
@@ -136,10 +147,7 @@ namespace tree
         {
             auto sqr = [](Scalar v) { return v * v; };
             Scalar dist = 0;
-            for (std::size_t i = 0; i < Dimensions; i++)
-            {
-                dist += sqr(location1[i] - location2[i]);
-            }
+            Loop<Dimensions>::run([&](std::size_t i) { dist += sqr(location1[i] - location2[i]); });
             return dist;
         }
     };
@@ -168,7 +176,13 @@ namespace tree
 
     private:
         struct Node;
+        struct Range
+        {
+            Scalar min, max;
+        };
+        using bounds_t = std::array<Range, Dimensions>;
         std::vector<Node> m_nodes;
+        std::vector<bounds_t> m_nodeBounds;
         std::vector<std::size_t> m_waitingForSplit;
         std::vector<LocationPayload> m_data;
 
@@ -176,6 +190,8 @@ namespace tree
         KDTree()
         {
             m_nodes.emplace_back(0, 0); // initialize the root node
+            m_nodeBounds.emplace_back();
+            m_nodeBounds.back().fill({std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
         }
 
         size_t size() const { return m_data.size(); }
@@ -186,7 +202,7 @@ namespace tree
 
             while (m_nodes[addNode].m_splitDimension != Dimensions)
             {
-                m_nodes[addNode].expandBounds(location);
+                expandBounds(addNode, location);
                 if (location[m_nodes[addNode].m_splitDimension] < m_nodes[addNode].m_splitValue)
                 {
                     addNode = m_nodes[addNode].m_children.first;
@@ -200,7 +216,7 @@ namespace tree
             std::size_t insertPos = m_nodes[addNode].m_dataEnd;
             m_data.insert(m_data.begin() + insertPos, LocationPayload {location, payload});
             m_nodes[addNode].m_dataEnd++;
-            m_nodes[addNode].expandBounds(location);
+            expandBounds(addNode, location);
 
             // Update all subsequent nodes' offsets if they were affected by the insert
             for (std::size_t i = 0; i < m_nodes.size(); ++i)
@@ -299,7 +315,7 @@ namespace tree
                     std::size_t nodeIndex = searchStack.back();
                     searchStack.pop_back();
                     const Node& node = m_nodes[nodeIndex];
-                    if (result.distance > node.pointRectDist(location))
+                    if (result.distance > pointRectDist(nodeIndex, location))
                     {
                         if (node.m_splitDimension == Dimensions)
                         {
@@ -365,6 +381,34 @@ namespace tree
         Searcher searcher() const { return Searcher(*this); }
 
     private:
+        void expandBounds(std::size_t nodeIndex, const point_t& location)
+        {
+            bounds_t& bounds = m_nodeBounds[nodeIndex];
+            Loop<Dimensions>::run(
+                [&](std::size_t i)
+                {
+                    if (bounds[i].min > location[i])
+                    {
+                        bounds[i].min = location[i];
+                    }
+                    if (bounds[i].max < location[i])
+                    {
+                        bounds[i].max = location[i];
+                    }
+                });
+            m_nodes[nodeIndex].m_entries++;
+        }
+
+        Scalar pointRectDist(std::size_t nodeIndex, const point_t& location) const
+        {
+            auto clamp = [](Scalar v, Range r) { return std::max(r.min, std::min(r.max, v)); };
+            const bounds_t& bounds = m_nodeBounds[nodeIndex];
+            point_t closestBoundsPoint;
+
+            Loop<Dimensions>::run([&](std::size_t i) { closestBoundsPoint[i] = clamp(location[i], bounds[i]); });
+            return Distance::distance(closestBoundsPoint, location);
+        }
+
         void searchCapacityLimitedBall(const point_t& location,
                                        Scalar maxRadius,
                                        std::size_t maxPoints,
@@ -382,7 +426,7 @@ namespace tree
                     std::size_t nodeIndex = searchStack.back();
                     searchStack.pop_back();
                     const Node& node = m_nodes[nodeIndex];
-                    Scalar minDist = node.pointRectDist(location);
+                    Scalar minDist = pointRectDist(nodeIndex, location);
                     if (maxRadius > minDist
                         && (prioqueue.size() < numSearchPoints || prioqueue.top().distance > minDist))
                     {
@@ -412,20 +456,23 @@ namespace tree
             if (m_nodes.capacity() < m_nodes.size() + 2)
             {
                 m_nodes.reserve((m_nodes.capacity() + 1) * 2);
+                m_nodeBounds.reserve((m_nodeBounds.capacity() + 1) * 2);
             }
             Node& splitNode = m_nodes[index];
+            const bounds_t& splitBounds = m_nodeBounds[index];
             splitNode.m_splitDimension = Dimensions;
             Scalar width(0);
             // select widest dimension
-            for (std::size_t i = 0; i < Dimensions; i++)
-            {
-                Scalar dWidth = splitNode.m_bounds[i].max - splitNode.m_bounds[i].min;
-                if (dWidth > width)
+            Loop<Dimensions>::run(
+                [&](std::size_t i)
                 {
-                    splitNode.m_splitDimension = i;
-                    width = dWidth;
-                }
-            }
+                    Scalar dWidth = splitBounds[i].max - splitBounds[i].min;
+                    if (dWidth > width)
+                    {
+                        splitNode.m_splitDimension = i;
+                        width = dWidth;
+                    }
+                });
             if (splitNode.m_splitDimension == Dimensions)
             {
                 return false;
@@ -453,27 +500,34 @@ namespace tree
 
             splitNode.m_children = std::make_pair(m_nodes.size(), m_nodes.size() + 1);
             m_nodes.emplace_back(splitNode.m_dataBegin, mid);
+            m_nodeBounds.emplace_back();
+            m_nodeBounds.back().fill({std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
+
             m_nodes.emplace_back(mid, splitNode.m_dataEnd);
+            m_nodeBounds.emplace_back();
+            m_nodeBounds.back().fill({std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
 
-            Node& leftNode = m_nodes[splitNode.m_children.first];
-            Node& rightNode = m_nodes[splitNode.m_children.second];
+            std::size_t leftIndex = splitNode.m_children.first;
+            std::size_t rightIndex = splitNode.m_children.second;
 
-            for (std::size_t i = leftNode.m_dataBegin; i < leftNode.m_dataEnd; ++i)
+            for (std::size_t i = m_nodes[leftIndex].m_dataBegin; i < m_nodes[leftIndex].m_dataEnd; ++i)
             {
-                leftNode.expandBounds(m_data[i].location);
+                expandBounds(leftIndex, m_data[i].location);
             }
-            for (std::size_t i = rightNode.m_dataBegin; i < rightNode.m_dataEnd; ++i)
+            for (std::size_t i = m_nodes[rightIndex].m_dataBegin; i < m_nodes[rightIndex].m_dataEnd; ++i)
             {
-                rightNode.expandBounds(m_data[i].location);
+                expandBounds(rightIndex, m_data[i].location);
             }
 
-            if (leftNode.m_entries == 0) // points with equality to splitValue go in rightNode
+            if (m_nodes[leftIndex].m_entries == 0) // points with equality to splitValue go in rightNode
             {
                 splitNode.m_splitValue = 0;
                 splitNode.m_splitDimension = Dimensions;
                 splitNode.m_children = std::pair<std::size_t, std::size_t>(0, 0);
                 m_nodes.pop_back();
                 m_nodes.pop_back();
+                m_nodeBounds.pop_back();
+                m_nodeBounds.pop_back();
                 return false;
             }
             return true;
@@ -485,23 +539,6 @@ namespace tree
             {
                 m_dataBegin = begin;
                 m_dataEnd = end;
-                m_bounds.fill(Range {std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
-            }
-
-            void expandBounds(const point_t& location)
-            {
-                for (std::size_t i = 0; i < Dimensions; i++)
-                {
-                    if (m_bounds[i].min > location[i])
-                    {
-                        m_bounds[i].min = location[i];
-                    }
-                    if (m_bounds[i].max < location[i])
-                    {
-                        m_bounds[i].max = location[i];
-                    }
-                }
-                m_entries++;
             }
 
             bool shouldSplit() const { return m_entries >= BucketSize; }
@@ -552,29 +589,10 @@ namespace tree
                 }
             }
 
-            Scalar pointRectDist(const point_t& location) const
-            {
-                auto clamp = [](Scalar v, Range r) { return std::max(r.min, std::min(r.max, v)); };
-
-                point_t closestBoundsPoint;
-
-                for (std::size_t i = 0; i < Dimensions; i++)
-                {
-                    closestBoundsPoint[i] = clamp(location[i], m_bounds[i]);
-                }
-                return Distance::distance(closestBoundsPoint, location);
-            }
-
             std::size_t m_entries = 0; /// size of the tree, or subtree
 
             std::size_t m_splitDimension = Dimensions; /// split dimension of this node
             Scalar m_splitValue = 0; /// split value of this node
-
-            struct Range
-            {
-                Scalar min, max;
-            };
-            std::array<Range, Dimensions> m_bounds; /// bounding box of this node
 
             std::pair<std::size_t, std::size_t> m_children; /// subtrees of this node (if not a leaf)
             std::size_t m_dataBegin = 0; /// start index in the global data vector
