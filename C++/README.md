@@ -12,6 +12,7 @@ A C++11 KD-Tree with the following features:
 * templatable on double, float etc
 * templatable on L1, SquaredL2 or custom distance functor
 * templated on number of dimensions for efficient inlining
+* iterator support for easy traversal of all points
 
 # Motivation #
 
@@ -122,6 +123,11 @@ dimensionality, which is found in most real world data.
 Hybrid ball/KNN searches are faster than either type on its own, because subtrees can be more aggresively eliminated.
 
 # Release Notes #
+
+0.6
+
+* New feature: iterator support to traverse all points in the tree
+* New feature: `rebalance()` method to rebuild the tree for optimal performance
 
 0.5
 
