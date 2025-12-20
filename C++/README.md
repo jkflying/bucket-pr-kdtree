@@ -124,6 +124,14 @@ Hybrid ball/KNN searches are faster than either type on its own, because subtree
 
 # Release Notes #
 
+0.7
+
+* New feature: `removePoint()` function, and it even shrinks bounding boxes as points are removed to keep the tree fast
+* Improvement: building trees is ~2x faster, querying from a tree is ~1.8x faster via memory layout improvements and templated loop unrolling
+* Improvement: `rebalance()` now does operates in-place, and also does compaction to reclaim memory of points which were removed
+* Improvement: single-point queries via the `search()` function no longer requires any dynamic memory allocations
+* Improvement: test coverage now also covers L1 distance, for 100% line coverage and 78% branch coverage
+
 0.6
 
 * New feature: iterator support to traverse all points in the tree
