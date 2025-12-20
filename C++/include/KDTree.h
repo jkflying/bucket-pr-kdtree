@@ -172,6 +172,11 @@ namespace tree
         {
             point_t location;
             Payload payload;
+
+            bool operator==(const LocationPayload& other) const
+            {
+                return location == other.location && payload == other.payload;
+            }
         };
 
     private:
@@ -194,7 +199,7 @@ namespace tree
             m_nodeBounds.back().fill({std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
         }
 
-        size_t size() const { return m_data.size(); }
+        size_t size() const { return m_nodes.empty() ? 0 : m_nodes[0].m_entries; }
 
         void addPoint(const point_t& location, const Payload& payload, bool autosplit = true)
         {
@@ -242,15 +247,129 @@ namespace tree
             }
         }
 
-        using iterator = typename std::vector<LocationPayload>::const_iterator;
-        iterator begin() const { return m_data.begin(); }
-        iterator end() const { return m_data.end(); }
+        bool removePoint(const point_t& location, const Payload& payload)
+        {
+            std::vector<std::size_t> path;
+            std::size_t nodeIndex = 0;
+
+            while (m_nodes[nodeIndex].m_splitDimension != Dimensions)
+            {
+                path.push_back(nodeIndex);
+                if (location[m_nodes[nodeIndex].m_splitDimension] < m_nodes[nodeIndex].m_splitValue)
+                {
+                    nodeIndex = m_nodes[nodeIndex].m_children.first;
+                }
+                else
+                {
+                    nodeIndex = m_nodes[nodeIndex].m_children.second;
+                }
+            }
+
+            Node& leaf = m_nodes[nodeIndex];
+            LocationPayload target {location, payload};
+            for (std::size_t i = leaf.m_dataBegin; i < leaf.m_dataEnd; ++i)
+            {
+                if (m_data[i] == target)
+                {
+                    std::swap(m_data[i], m_data[leaf.m_dataEnd - 1]);
+                    leaf.m_dataEnd--;
+                    leaf.m_entries--;
+                    recalculateLeafBounds(nodeIndex);
+
+                    for (int j = path.size() - 1; j >= 0; --j)
+                    {
+                        std::size_t ancestorIdx = path[j];
+                        m_nodes[ancestorIdx].m_entries--;
+                        updateInternalNodeBounds(ancestorIdx);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        class iterator
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = LocationPayload;
+            using difference_type = std::ptrdiff_t;
+            using pointer = const LocationPayload*;
+            using reference = const LocationPayload&;
+
+            iterator(const KDTree* tree, std::size_t nodeIndex, std::size_t pointIndex)
+                : m_tree(tree), m_nodeIndex(nodeIndex), m_pointIndex(pointIndex)
+            {
+                advanceToNextValid();
+            }
+
+            iterator() : m_tree(nullptr), m_nodeIndex(0), m_pointIndex(0) { }
+
+            reference operator*() const { return m_tree->m_data[m_pointIndex]; }
+            pointer operator->() const { return &m_tree->m_data[m_pointIndex]; }
+
+            iterator& operator++()
+            {
+                m_pointIndex++;
+                advanceToNextValid();
+                return *this;
+            }
+
+            iterator operator++(int)
+            {
+                iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            bool operator==(const iterator& other) const
+            {
+                if (m_tree != other.m_tree)
+                    return false;
+                if (m_tree == nullptr)
+                    return true;
+                return m_nodeIndex == other.m_nodeIndex && m_pointIndex == other.m_pointIndex;
+            }
+
+            bool operator!=(const iterator& other) const { return !(*this == other); }
+
+        private:
+            const KDTree* m_tree;
+            std::size_t m_nodeIndex;
+            std::size_t m_pointIndex;
+
+            void advanceToNextValid()
+            {
+                if (!m_tree)
+                    return;
+                while (m_nodeIndex < m_tree->m_nodes.size())
+                {
+                    const auto& node = m_tree->m_nodes[m_nodeIndex];
+                    if (node.m_splitDimension == Dimensions)
+                    {
+                        if (m_pointIndex < node.m_dataEnd)
+                        {
+                            if (m_pointIndex < node.m_dataBegin)
+                            {
+                                m_pointIndex = node.m_dataBegin;
+                            }
+                            return;
+                        }
+                    }
+                    m_nodeIndex++;
+                    m_pointIndex = 0;
+                }
+            }
+        };
+
+        iterator begin() const { return iterator(this, 0, 0); }
+        iterator end() const { return iterator(this, m_nodes.size(), 0); }
 
         void rebalance()
         {
             tree_t newTree;
-            newTree.m_data.reserve(m_data.size());
-            for (const auto& lp : m_data)
+            newTree.m_data.reserve(size());
+            for (const auto& lp : *this)
             {
                 newTree.addPoint(lp.location, lp.payload, false);
             }
@@ -409,6 +528,40 @@ namespace tree
             return Distance::distance(closestBoundsPoint, location);
         }
 
+        void recalculateLeafBounds(std::size_t nodeIndex)
+        {
+            bounds_t& bounds = m_nodeBounds[nodeIndex];
+            bounds.fill({std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()});
+            const Node& node = m_nodes[nodeIndex];
+            for (std::size_t i = node.m_dataBegin; i < node.m_dataEnd; ++i)
+            {
+                const auto& loc = m_data[i].location;
+                Loop<Dimensions>::run(
+                    [&](std::size_t d)
+                    {
+                        if (bounds[d].min > loc[d])
+                            bounds[d].min = loc[d];
+                        if (bounds[d].max < loc[d])
+                            bounds[d].max = loc[d];
+                    });
+            }
+        }
+
+        void updateInternalNodeBounds(std::size_t nodeIndex)
+        {
+            const Node& node = m_nodes[nodeIndex];
+            const bounds_t& leftBounds = m_nodeBounds[node.m_children.first];
+            const bounds_t& rightBounds = m_nodeBounds[node.m_children.second];
+            bounds_t& bounds = m_nodeBounds[nodeIndex];
+
+            Loop<Dimensions>::run(
+                [&](std::size_t d)
+                {
+                    bounds[d].min = std::min(leftBounds[d].min, rightBounds[d].min);
+                    bounds[d].max = std::max(leftBounds[d].max, rightBounds[d].max);
+                });
+        }
+
         void searchCapacityLimitedBall(const point_t& location,
                                        Scalar maxRadius,
                                        std::size_t maxPoints,
@@ -416,7 +569,7 @@ namespace tree
                                        std::priority_queue<DistancePayload, std::vector<DistancePayload>>& prioqueue,
                                        std::vector<DistancePayload>& results) const
         {
-            std::size_t numSearchPoints = std::min(maxPoints, m_data.size());
+            std::size_t numSearchPoints = std::min(maxPoints, size());
 
             if (numSearchPoints > 0)
             {

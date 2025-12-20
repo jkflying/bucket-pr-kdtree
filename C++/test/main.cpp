@@ -12,6 +12,7 @@ void performanceTest();
 void iteratorTest();
 void rebalanceTest();
 void eightDTest();
+void removalTest();
 
 int main()
 {
@@ -21,6 +22,7 @@ int main()
     iteratorTest();
     rebalanceTest();
     eightDTest();
+    removalTest();
     performanceTest();
     return 0;
 }
@@ -424,6 +426,70 @@ void eightDTest()
         }
     }
     std::cout << "8D tests completed" << std::endl;
+}
+
+void removalTest()
+{
+    std::cout << "Removal tests started" << std::endl;
+    static const int dims = 2;
+    using tree_t = jk::tree::KDTree<int, dims>;
+    tree_t tree;
+
+    std::vector<std::array<double, dims>> points;
+    for (int i = 0; i < 1000; i++)
+    {
+        std::array<double, dims> p = {{drand(), drand()}};
+        tree.addPoint(p, i);
+        points.push_back(p);
+    }
+
+    // Remove half of the points
+    for (int i = 0; i < 500; i++)
+    {
+        if (!tree.removePoint(points[i], i))
+        {
+            std::cout << "Failed to remove point " << i << std::endl;
+        }
+    }
+
+    if (tree.size() != 500)
+    {
+        std::cout << "Size mismatch after removal: " << tree.size() << " != 500" << std::endl;
+    }
+
+    // Verify remaining points
+    int count = 0;
+    for (const auto& lp : tree)
+    {
+        count++;
+        if (lp.payload < 500)
+        {
+            std::cout << "Removed point still present in iterator: " << lp.payload << std::endl;
+        }
+    }
+    if (count != 500)
+    {
+        std::cout << "Iterator count mismatch after removal: " << count << " != 500" << std::endl;
+    }
+
+    // Verify searches don't find removed points
+    for (int i = 0; i < 500; i++)
+    {
+        auto results = tree.searchKnn(points[i], 1);
+        if (!results.empty() && results[0].payload == i && results[0].distance < 1e-10)
+        {
+            std::cout << "Search found removed point " << i << std::endl;
+        }
+    }
+
+    // Rebalance and verify
+    tree.rebalance();
+    if (tree.size() != 500)
+    {
+        std::cout << "Size mismatch after rebalance: " << tree.size() << " != 500" << std::endl;
+    }
+
+    std::cout << "Removal tests completed" << std::endl;
 }
 
 #define DURATION double(((previous = current) * 0 + (current = std::clock()) - previous) / double(CLOCKS_PER_SEC))
