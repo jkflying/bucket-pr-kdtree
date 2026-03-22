@@ -178,8 +178,31 @@ template <int Dims, int BucketSize> void runRealDataset(const std::string& path,
     for (std::size_t i = 0; i < indices.size(); i++)
         indices[i] = i;
     std::shuffle(indices.begin(), indices.end(), rng);
+
+    flinn::FlinnIndex<int, Dims, BucketSize> qtree;
+    for (std::size_t i = 0; i < points.size(); i++)
+        qtree.addPoint(points[i], static_cast<int>(i), false);
+    qtree.splitOutstanding();
+    auto qsearcher = qtree.searcher();
+
     for (std::size_t i = 0; i < NQ; i++)
-        queries[i] = points[indices[i]];
+    {
+        const auto& neighbors = qsearcher.search(points[indices[i]], std::numeric_limits<double>::max(), 3);
+
+        constexpr double weights[] = {3.0, 2.0, 1.0};
+        double wsum = 0.0;
+        std::array<double, Dims> centroid{};
+        for (std::size_t j = 0; j < neighbors.size(); j++)
+        {
+            double w = weights[j];
+            wsum += w;
+            for (int d = 0; d < Dims; d++)
+                centroid[d] += w * points[neighbors[j].payload][d];
+        }
+        for (int d = 0; d < Dims; d++)
+            centroid[d] /= wsum;
+        queries[i] = centroid;
+    }
 
     std::cerr << "  " << name << ": " << points.size() << " points, D=" << Dims << "\n";
     for (int i = 0; i < NK; i++)
