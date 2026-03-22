@@ -2,9 +2,7 @@
 
 I previously wrote a very high performance KD-tree in Java, but these days I work mostly with C++. I hadn't yet found one with a simple API that is also fast and doesn't bring a bunch of dependencies or a weird build system, so I decided to write my own. It's based roughly on what I did in the Java tree, but of course with a bunch of optimizations that weren't possible in Java.
 
-It's a single C++11 header file, depends only on the STL. You template it on your data type, dimensions, and distance metric, and everything gets stored directly in the tree.
-
-It allows dynamic insertion of points, followed by queries, then insertion of more points (at the expense of some performance). This is useful for problems where queries are interspersed with new data and rebuilding the tree every time isn't viable. In domains like time series and behavioral prediction, the ground truth often arrives shortly after the prediction is made, so you can incorporate new observations immediately and keep the model accurate even as the data drifts. I wrote more about this here: [Low Latency Adaptive ML with KNN](https://jkflying.net/posts/low_latency_adaptive_ml/)
+It allows dynamic insertion of points, followed by queries, then insertion of more points (at the expense of some query performance). This is useful for problems where queries are interspersed with new data and rebuilding the tree every time wouldn't amortize. In domains like online time series and behavioral prediction, the ground truth often arrives shortly after the prediction is made, so you can incorporate new observations immediately and keep the model accurate even as the data drifts. I wrote more about this here: [Low Latency Adaptive ML with KNN](https://jkflying.net/posts/low_latency_adaptive_ml/)
 
 ## Features
 
@@ -78,7 +76,7 @@ make
 
 ## Benchmarks
 
-Even though Flinn is built for incremental insertion, bulk performance is still good. With all points inserted up front it's about as fast as [nanoflann](https://github.com/jlblancoc/nanoflann) for small K in low dimensions, and faster once you start increasing either.
+Even though FLINN is built for incremental insertion, bulk performance is still good. With all points inserted up front before triggering splits it's about as fast as [nanoflann](https://github.com/jlblancoc/nanoflann) for small K in low dimensions, and faster once you start increasing either. It also supports incremental building, which most other search indexes don't allow at all, if that is useful for you.
 
 Uniform random data (batch insert, then query):
 

@@ -124,6 +124,7 @@ void accuracyTest()
     if (tree.size() != 0)
     {
         std::cout << "Count doesn't match!!!" << std::endl;
+        exit(1);
     }
 
     auto searcher = tree.searcher();
@@ -141,6 +142,7 @@ void accuracyTest()
         if (tnn.size() != bnn.size() || snn.size() != bnn.size() || bnn.size() > std::min(k, points.size()))
         {
             std::cout << "Searched for " << k << ", found " << tnn.size() << std::endl;
+            exit(1);
         }
 
         if (bnn.size() > 0)
@@ -149,10 +151,12 @@ void accuracyTest()
             if (nn.payload != bnn[0].second)
             {
                 std::cout << "1nn payloads not equal" << std::endl;
+                exit(1);
             }
             if (std::abs(bnn[0].first - nn.distance) > 1e-10)
             {
                 std::cout << "1nn distances not equal" << std::endl;
+                exit(1);
             }
 
             // AND: searcher k=1 fast path should match
@@ -160,14 +164,17 @@ void accuracyTest()
             if (s1nn.size() != 1)
             {
                 std::cout << "searcher k=1 result size mismatch" << std::endl;
+                exit(1);
             }
             if (s1nn[0].payload != bnn[0].second)
             {
                 std::cout << "searcher k=1 payload not equal" << std::endl;
+                exit(1);
             }
             if (std::abs(bnn[0].first - s1nn[0].distance) > 1e-10)
             {
                 std::cout << "searcher k=1 distance not equal" << std::endl;
+                exit(1);
             }
         }
 
@@ -177,18 +184,22 @@ void accuracyTest()
             if (std::abs(bnn[i].first - tnn[i].distance) > 1e-10)
             {
                 std::cout << "distances not equal" << std::endl;
+                exit(1);
             }
             if (std::abs(bnn[i].first - snn[i].distance) > 1e-10)
             {
                 std::cout << "distances not equal" << std::endl;
+                exit(1);
             }
             if (bnn[i].second != tnn[i].payload)
             {
                 std::cout << "payloads not equal" << std::endl;
+                exit(1);
             }
             if (bnn[i].second != snn[i].payload)
             {
                 std::cout << "payloads not equal" << std::endl;
+                exit(1);
             }
         }
 
@@ -200,6 +211,7 @@ void accuracyTest()
         if (tree.size() != points.size())
         {
             std::cout << "Count doesn't match!!!" << std::endl;
+            exit(1);
         }
     }
 
@@ -221,22 +233,25 @@ void accuracyTest()
         if (tnn.size() != bnn.size())
         {
             std::cout << "Brute force results are not the same size as tree results" << std::endl;
-            continue;
+            exit(1);
         }
 
         if (tnn.size() && tnn.back().distance > radius)
         {
             std::cout << "Searched for max radius " << radius << ", found " << tnn.back().distance << std::endl;
+            exit(1);
         }
         for (std::size_t i = 0; i < tnn.size(); i++)
         {
             if (std::abs(bnn[i].first - tnn[i].distance) > 1e-10)
             {
                 std::cout << "distances not equal" << std::endl;
+                exit(1);
             }
             if (bnn[i].second != tnn[i].payload)
             {
                 std::cout << "payloads not equal" << std::endl;
+                exit(1);
             }
         }
     }
@@ -280,6 +295,7 @@ void duplicateTest()
     if (tnn.size() != 80)
     {
         std::cout << "Incorrect K: " << tnn.size() << std::endl;
+        exit(1);
     }
     std::cout << "Duplicate tests completed" << std::endl;
 }
@@ -297,6 +313,7 @@ void iteratorTest()
     if (tree.begin() != tree.end())
     {
         std::cout << "Empty tree begin != end" << std::endl;
+        exit(1);
     }
 
     // WHEN: adding points
@@ -319,6 +336,7 @@ void iteratorTest()
     if (count != 1000)
     {
         std::cout << "Unsplit tree iterator count mismatch: " << count << " != 1000" << std::endl;
+        exit(1);
     }
 
     // WHEN: splitting the tree
@@ -335,6 +353,7 @@ void iteratorTest()
     if (count != 1000)
     {
         std::cout << "Split tree iterator count mismatch: " << count << " != 1000" << std::endl;
+        exit(1);
     }
 
     std::sort(foundPayloads.begin(), foundPayloads.end());
@@ -343,7 +362,7 @@ void iteratorTest()
         if (foundPayloads[i] != i)
         {
             std::cout << "Payload mismatch at " << i << ": " << foundPayloads[i] << " != " << i << std::endl;
-            break;
+            exit(1);
         }
     }
 
@@ -366,6 +385,7 @@ void iteratorTest()
     if (count != 2000)
     {
         std::cout << "Post-autosplit tree iterator count mismatch: " << count << " != 2000" << std::endl;
+        exit(1);
     }
 
     std::cout << "Iterator tests completed" << std::endl;
@@ -395,6 +415,7 @@ void rebalanceTest()
     if (tree.size() != sizeBefore)
     {
         std::cout << "Size mismatch after rebalance: " << tree.size() << " != " << sizeBefore << std::endl;
+        exit(1);
     }
 
     // AND: all points should still be there
@@ -409,7 +430,7 @@ void rebalanceTest()
         if (foundPayloads[i] != i)
         {
             std::cout << "Payload mismatch after rebalance at " << i << std::endl;
-            break;
+            exit(1);
         }
     }
 
@@ -441,6 +462,7 @@ void eightDTest()
         if (results.size() != 5)
         {
             std::cout << "8D search failed to find 5 neighbors" << std::endl;
+            exit(1);
         }
     }
     std::cout << "8D tests completed" << std::endl;
@@ -467,12 +489,14 @@ void removalTest()
         if (!tree.removePoint(points[i], i))
         {
             std::cout << "Failed to remove point " << i << std::endl;
+            exit(1);
         }
     }
 
     if (tree.size() != 500)
     {
         std::cout << "Size mismatch after removal: " << tree.size() << " != 500" << std::endl;
+        exit(1);
     }
 
     // Verify remaining points
@@ -483,11 +507,13 @@ void removalTest()
         if (lp.payload < 500)
         {
             std::cout << "Removed point still present in iterator: " << lp.payload << std::endl;
+            exit(1);
         }
     }
     if (count != 500)
     {
         std::cout << "Iterator count mismatch after removal: " << count << " != 500" << std::endl;
+        exit(1);
     }
 
     // Verify searches don't find removed points
@@ -497,6 +523,7 @@ void removalTest()
         if (!results.empty() && results[0].payload == i && results[0].distance < 1e-10)
         {
             std::cout << "Search found removed point " << i << std::endl;
+            exit(1);
         }
     }
 
@@ -505,6 +532,7 @@ void removalTest()
     if (tree.size() != 500)
     {
         std::cout << "Size mismatch after rebalance: " << tree.size() << " != 500" << std::endl;
+        exit(1);
     }
 
     std::cout << "Removal tests completed" << std::endl;
@@ -552,7 +580,7 @@ void l1DistanceTest()
         if (knn.size() != brute.size())
         {
             std::cout << "L1 KNN size mismatch" << std::endl;
-            continue;
+            exit(1);
         }
 
         for (std::size_t j = 0; j < knn.size(); ++j)
@@ -561,6 +589,7 @@ void l1DistanceTest()
             {
                 std::cout << "L1 distance mismatch at " << j << ": " << knn[j].distance << " != " << brute[j].first
                           << std::endl;
+                exit(1);
             }
         }
     }
@@ -628,6 +657,7 @@ void performanceTest()
             if (nn.size() != k)
             {
                 std::cout << nn.size() << " instead of " << k << " ERROR" << std::endl;
+                exit(1);
             }
         }
         std::cout << DURATION << "s" << std::endl;
@@ -645,6 +675,7 @@ void performanceTest()
             if (nn.size() != k)
             {
                 std::cout << nn.size() << " instead of " << k << " ERROR" << std::endl;
+                exit(1);
             }
         }
         std::cout << DURATION << "s" << std::endl;
