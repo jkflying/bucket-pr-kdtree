@@ -4,7 +4,7 @@ set -euo pipefail
 CPP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if ! command -v clang-format &>/dev/null; then
-    sudo apt-get install -y clang-format
+    sudo apt-get install -y clang-format libnanoflann-dev
 fi
 
 # clang-format check
