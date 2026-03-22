@@ -191,7 +191,7 @@ template <int Dims, int BucketSize> void runRealDataset(const std::string& path,
 
         constexpr double weights[] = {3.0, 2.0, 1.0};
         double wsum = 0.0;
-        std::array<double, Dims> centroid{};
+        std::array<double, Dims> centroid {};
         for (std::size_t j = 0; j < neighbors.size(); j++)
         {
             double w = weights[j];
