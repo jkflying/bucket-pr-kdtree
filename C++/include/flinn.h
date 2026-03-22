@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * KDTree.h by Julian Kent
+ * flinn.h by Julian Kent
  * A C++11 KD-Tree with the following features:
  *     single file
  *     header only
@@ -25,7 +25,7 @@
  *
  * Upstreaming features and bugfixes are highly appreciated via:
  *
- * https://github.com/jkflying/bucket-pr-kdtree/tree/master/C%2B%2B
+ * https://github.com/jkflying/flinn
  *
  * For additional licensing rights, feature requests or questions, please contact Julian Kent <jkflying@gmail.com>
  *
@@ -34,7 +34,7 @@
  * Example usage:
  *
  * // setup
- * using tree_t = jk::tree::KDTree<std::string, 2>;
+ * using tree_t = flinn::FlinnIndex<std::string, 2>;
  * using point_t = std::array<double, 2>;
  * tree_t tree;
  * tree.addPoint(point_t{{1, 2}}, "George");
@@ -105,13 +105,9 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <queue>
-#include <set>
 #include <vector>
 
-namespace jk
-{
-namespace tree
+namespace flinn
 {
     template <std::size_t Dim> struct Loop;
     struct L1;
@@ -122,7 +118,7 @@ namespace tree
               std::size_t BucketSize = 32,
               class Distance = SquaredL2,
               typename Scalar = double>
-    class KDTree
+    class FlinnIndex
     {
     public:
         using distance_t = Distance;
@@ -131,7 +127,7 @@ namespace tree
         using point_t = std::array<Scalar, Dimensions>;
         static const std::size_t dimensions = Dimensions;
         static const std::size_t bucketSize = BucketSize;
-        using tree_t = KDTree<Payload, Dimensions, BucketSize, Distance, Scalar>;
+        using tree_t = FlinnIndex<Payload, Dimensions, BucketSize, Distance, Scalar>;
 
         struct LocationPayload
         {
@@ -158,7 +154,7 @@ namespace tree
             Contract
         };
 
-        KDTree()
+        FlinnIndex()
             : m_nodes {{0, 0}}
             , m_nodeBounds {{std::numeric_limits<Scalar>::max(), std::numeric_limits<Scalar>::lowest()}}
         {
@@ -357,25 +353,25 @@ namespace tree
             const std::vector<DistancePayload>& search(const point_t& location, Scalar maxRadius, std::size_t maxPoints)
             {
                 m_results.clear();
-                m_searchStack.reserve(1 + std::size_t(1.5 * std::log2(1 + m_tree.size() / BucketSize)));
-                if (m_prioqueueCapacity < maxPoints && maxPoints < m_tree.size())
+                if (maxPoints == 1 && m_tree.size() > 0)
                 {
-                    std::vector<DistancePayload> container;
-                    container.reserve(maxPoints);
-                    m_prioqueue = std::priority_queue<DistancePayload, std::vector<DistancePayload>>(
-                        std::less<DistancePayload>(), std::move(container));
-                    m_prioqueueCapacity = maxPoints;
+                    DistancePayload best;
+                    best.distance = maxRadius;
+                    m_tree.searchRecursive(0, location, best);
+                    if (best.distance < maxRadius)
+                        m_results.push_back(best);
+                    return m_results;
                 }
-                m_tree.searchCapacityLimitedBall(location, maxRadius, maxPoints, m_searchStack, m_prioqueue, m_results);
-                m_prioqueueCapacity = std::max(m_prioqueueCapacity, m_results.size());
+                m_searchStack.reserve(1 + std::size_t(1.5 * std::log2(1 + m_tree.size() / BucketSize)));
+                if (maxPoints < m_tree.size())
+                    m_results.reserve(maxPoints);
+                m_tree.searchCapacityLimitedBall(location, maxRadius, maxPoints, m_searchStack, m_results);
                 return m_results;
             }
 
         private:
             const tree_t& m_tree;
-            std::vector<std::size_t> m_searchStack;
-            std::priority_queue<DistancePayload, std::vector<DistancePayload>> m_prioqueue;
-            std::size_t m_prioqueueCapacity = 0;
+            std::vector<std::pair<std::size_t, Scalar>> m_searchStack;
             std::vector<DistancePayload> m_results;
         };
 
@@ -388,36 +384,20 @@ namespace tree
                                            const point_t& location,
                                            Scalar maxRadius,
                                            std::size_t K,
-                                           std::priority_queue<DistancePayload>& results) const
+                                           std::vector<DistancePayload>& results) const
             {
-                std::size_t i = m_dataBegin;
-                for (; results.size() < K && i < m_dataEnd; i++)
+                for (std::size_t i = m_dataBegin; i < m_dataEnd; i++)
                 {
                     Scalar distance = Distance::distance(location, data[i].location);
-                    if (distance < maxRadius)
-                        results.emplace(DistancePayload {distance, data[i].payload});
-                }
-                for (; i < m_dataEnd; i++)
-                {
-                    Scalar distance = Distance::distance(location, data[i].location);
-                    if (distance < maxRadius && distance < results.top().distance)
+                    if (distance < maxRadius && (results.size() < K || distance < results.back().distance))
                     {
-                        results.pop();
-                        results.emplace(DistancePayload {distance, data[i].payload});
+                        if (results.size() >= K)
+                            results.pop_back();
+                        std::size_t pos = results.size();
+                        while (pos > 0 && results[pos - 1].distance > distance)
+                            --pos;
+                        results.insert(results.begin() + pos, {distance, data[i].payload});
                     }
-                }
-            }
-            void queueChildren(const point_t& location, std::vector<std::size_t>& searchStack) const
-            {
-                if (location[m_splitDimension] < m_splitValue)
-                {
-                    searchStack.push_back(m_children.second);
-                    searchStack.push_back(m_children.first);
-                }
-                else
-                {
-                    searchStack.push_back(m_children.first);
-                    searchStack.push_back(m_children.second);
                 }
             }
             std::size_t m_entries = 0, m_splitDimension = Dimensions;
@@ -452,10 +432,13 @@ namespace tree
         std::vector<std::size_t> m_waitingForSplit;
         std::vector<LocationPayload> m_data;
 
-        void searchRecursive(std::size_t nodeIndex, const point_t& location, DistancePayload& best) const
+        void searchRecursive(std::size_t nodeIndex,
+                             const point_t& location,
+                             DistancePayload& best,
+                             bool checking = false) const
         {
             const Node& node = m_nodes[nodeIndex];
-            if (best.distance <= pointRectDist(nodeIndex, location))
+            if (checking && best.distance <= pointRectDist(nodeIndex, location))
                 return;
 
             if (node.m_splitDimension == Dimensions)
@@ -473,8 +456,10 @@ namespace tree
                                                                                               : node.m_children.second;
                 std::size_t farChild = (location[node.m_splitDimension] < node.m_splitValue) ? node.m_children.second
                                                                                              : node.m_children.first;
-                searchRecursive(nearChild, location, best);
-                searchRecursive(farChild, location, best);
+                Scalar farDist = pointRectDist(farChild, location);
+                searchRecursive(nearChild, location, best, checking);
+                if (best.distance > farDist)
+                    searchRecursive(farChild, location, best, true);
             }
         }
 
@@ -552,36 +537,51 @@ namespace tree
         void searchCapacityLimitedBall(const point_t& location,
                                        Scalar maxRadius,
                                        std::size_t maxPoints,
-                                       std::vector<std::size_t>& searchStack,
-                                       std::priority_queue<DistancePayload, std::vector<DistancePayload>>& prioqueue,
+                                       std::vector<std::pair<std::size_t, Scalar>>& searchStack,
                                        std::vector<DistancePayload>& results) const
         {
             std::size_t numSearchPoints = std::min(maxPoints, size());
             if (numSearchPoints > 0)
             {
-                searchStack.push_back(0);
+                searchStack.push_back({0, Scalar(0)});
                 while (!searchStack.empty())
                 {
-                    std::size_t nodeIndex = searchStack.back();
+                    std::size_t nodeIndex = searchStack.back().first;
+                    Scalar minDist = searchStack.back().second;
                     searchStack.pop_back();
-                    const Node& node = m_nodes[nodeIndex];
-                    Scalar minDist = pointRectDist(nodeIndex, location);
-                    if (maxRadius > minDist
-                        && (prioqueue.size() < numSearchPoints || prioqueue.top().distance > minDist))
+                    if (results.size() >= numSearchPoints && minDist >= results.back().distance)
+                        continue;
+                    if (minDist >= maxRadius)
+                        continue;
+                    const Node* node = &m_nodes[nodeIndex];
+                    while (node->m_splitDimension != Dimensions)
                     {
-                        if (node.m_splitDimension == Dimensions)
-                            node.searchCapacityLimitedBall(m_data, location, maxRadius, numSearchPoints, prioqueue);
+                        std::size_t nearChild, farChild;
+                        if (location[node->m_splitDimension] < node->m_splitValue)
+                        {
+                            nearChild = node->m_children.first;
+                            farChild = node->m_children.second;
+                        }
                         else
-                            node.queueChildren(location, searchStack);
+                        {
+                            nearChild = node->m_children.second;
+                            farChild = node->m_children.first;
+                        }
+                        Scalar farDist = pointRectDist(farChild, location);
+                        if (results.size() < numSearchPoints
+                            || (farDist < maxRadius && farDist < results.back().distance))
+                            searchStack.push_back({farChild, farDist});
+                        if (results.size() >= numSearchPoints)
+                        {
+                            Scalar nearDist = pointRectDist(nearChild, location);
+                            if (nearDist >= results.back().distance || nearDist >= maxRadius)
+                                break;
+                        }
+                        node = &m_nodes[nearChild];
                     }
+                    if (node->m_splitDimension == Dimensions)
+                        node->searchCapacityLimitedBall(m_data, location, maxRadius, numSearchPoints, results);
                 }
-                results.reserve(prioqueue.size());
-                while (!prioqueue.empty())
-                {
-                    results.push_back(prioqueue.top());
-                    prioqueue.pop();
-                }
-                std::reverse(results.begin(), results.end());
             }
         }
 
@@ -689,5 +689,4 @@ namespace tree
             return dist;
         }
     };
-}
 }

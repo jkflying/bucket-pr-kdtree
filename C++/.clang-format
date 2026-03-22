@@ -16,7 +16,7 @@ Cpp11BracedListStyle: 'true'
 ExperimentalAutoDetectBinPacking: 'false'
 IndentWidth: '4'
 Language: Cpp
-NamespaceIndentation: Inner
+NamespaceIndentation: All
 PenaltyBreakBeforeFirstCallParameter: '17'
 PenaltyBreakComment: '1'
 PenaltyBreakFirstLessLess: '1'

@@ -1,4 +1,4 @@
-#include <KDTree.h>
+#include <flinn.h>
 
 #include <cstdlib>
 #include <ctime>
@@ -33,7 +33,7 @@ void example()
 {
     std::cout << "Example starting..." << std::endl;
     // setup
-    using tree_t = jk::tree::KDTree<std::string, 2>;
+    using tree_t = flinn::FlinnIndex<std::string, 2>;
     using point_t = std::array<double, 2>;
     tree_t tree;
     tree.addPoint(point_t {{1, 2}}, "George");
@@ -75,7 +75,7 @@ void accuracyTest()
     std::cout << "Accuracy tests starting..." << std::endl;
     static const int dims = 4;
     std::vector<std::array<double, dims>> points;
-    using tree_t = jk::tree::KDTree<int, dims>;
+    using tree_t = flinn::FlinnIndex<int, dims>;
     tree_t tree;
     int count = 0;
     std::srand(1234567);
@@ -153,6 +153,21 @@ void accuracyTest()
             if (std::abs(bnn[0].first - nn.distance) > 1e-10)
             {
                 std::cout << "1nn distances not equal" << std::endl;
+            }
+
+            // AND: searcher k=1 fast path should match
+            auto s1nn = searcher.search(loc, 1e9, 1);
+            if (s1nn.size() != 1)
+            {
+                std::cout << "searcher k=1 result size mismatch" << std::endl;
+            }
+            if (s1nn[0].payload != bnn[0].second)
+            {
+                std::cout << "searcher k=1 payload not equal" << std::endl;
+            }
+            if (std::abs(bnn[0].first - s1nn[0].distance) > 1e-10)
+            {
+                std::cout << "searcher k=1 distance not equal" << std::endl;
             }
         }
 
@@ -244,7 +259,7 @@ void duplicateTest()
         }
         return loc;
     };
-    using tree_t = jk::tree::KDTree<int, dims>;
+    using tree_t = flinn::FlinnIndex<int, dims>;
     tree_t tree;
 
     const std::array<double, dims> loc = randomPoint();
@@ -275,7 +290,7 @@ void iteratorTest()
 
     // GIVEN: an empty tree
     static const int dims = 3;
-    using tree_t = jk::tree::KDTree<int, dims>;
+    using tree_t = flinn::FlinnIndex<int, dims>;
     tree_t tree;
 
     // THEN: iterator should be at end
@@ -345,6 +360,7 @@ void iteratorTest()
     count = 0;
     for (auto& lp : tree)
     {
+        (void)lp;
         count++;
     }
     if (count != 2000)
@@ -361,7 +377,7 @@ void rebalanceTest()
 
     // GIVEN: a tree built with many dynamic insertions
     static const int dims = 2;
-    using tree_t = jk::tree::KDTree<int, dims>;
+    using tree_t = flinn::FlinnIndex<int, dims>;
     tree_t tree;
 
     for (int i = 0; i < 2000; i++)
@@ -404,7 +420,7 @@ void eightDTest()
 {
     std::cout << "8D tests started" << std::endl;
     static const int dims = 8;
-    using tree_t = jk::tree::KDTree<int, dims>;
+    using tree_t = flinn::FlinnIndex<int, dims>;
     tree_t tree;
 
     std::srand(123);
@@ -434,7 +450,7 @@ void removalTest()
 {
     std::cout << "Removal tests started" << std::endl;
     static const int dims = 2;
-    using tree_t = jk::tree::KDTree<int, dims>;
+    using tree_t = flinn::FlinnIndex<int, dims>;
     tree_t tree;
 
     std::vector<std::array<double, dims>> points;
@@ -498,7 +514,7 @@ void l1DistanceTest()
 {
     std::cout << "L1 Distance tests started" << std::endl;
     static const int dims = 3;
-    using tree_t = jk::tree::KDTree<int, dims, 32, jk::tree::L1>;
+    using tree_t = flinn::FlinnIndex<int, dims, 32, flinn::L1>;
     tree_t tree;
 
     std::vector<std::array<double, dims>> points;
@@ -552,7 +568,13 @@ void l1DistanceTest()
     std::cout << "L1 Distance tests completed" << std::endl;
 }
 
-#define DURATION double(((previous = current) * 0 + (current = std::clock()) - previous) / double(CLOCKS_PER_SEC))
+inline double duration(std::clock_t& previous, std::clock_t& current)
+{
+    previous = current;
+    current = std::clock();
+    return double(current - previous) / double(CLOCKS_PER_SEC);
+}
+#define DURATION duration(previous, current)
 void performanceTest()
 {
     std::cout << "Performance tests starting..." << std::endl;
@@ -561,7 +583,7 @@ void performanceTest()
     static const int dims = 2;
     std::cout << "adding ";
     std::vector<std::array<double, dims>> points;
-    jk::tree::KDTree<int, dims, 8> tree;
+    flinn::FlinnIndex<int, dims, 8> tree;
 
     int count = 0;
     std::srand(1234567);
