@@ -3,8 +3,8 @@ set -euo pipefail
 
 CPP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-if ! dpkg -s libnanoflann-dev &>/dev/null; then
-    sudo apt-get install -y libnanoflann-dev
+if ! dpkg -s libnanoflann-dev lcov &>/dev/null; then
+    sudo apt-get install -y libnanoflann-dev lcov
 fi
 
 # clang-format check
